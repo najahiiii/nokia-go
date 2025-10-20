@@ -11,6 +11,7 @@
   </head>
 
   <body class="bg-[#1E1E1E] text-[#e5e5e5] font-inter text-sm leading-relaxed">
+    <div id="notificationRoot" class="fixed inset-0 pointer-events-none z-[1100]"></div>
     <div class="max-w-[1440px] mx-auto p-5 sm:p-6 md:p-8">
       <header class="flex justify-between items-center pb-6">
         <h1 class="font-semibold text-base m-0">Nokia Fastmile 5G Gateway 2</h1>
@@ -33,6 +34,7 @@
             aria-label="Configuration"
           ></i>
           <i
+            id="refreshIp"
             class="fas fa-sync-alt text-lg cursor-pointer text-[#e5e5e5] hover:text-[#6495ed] origin-center hidden"
             aria-label="Refresh"
           ></i>
@@ -814,8 +816,6 @@
               />
             </div>
           </div>
-
-          <div id="configFeedback" class="text-sm min-h-[1.5rem] text-gray-300"></div>
 
           <div class="flex justify-end gap-3 pt-2">
             <button

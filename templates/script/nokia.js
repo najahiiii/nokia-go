@@ -688,6 +688,7 @@ const DOM = {
 const App = {
     async init() {
         this.initConfigDialog();
+        this.initNotifications();
 
         try {
             // Initial data load
@@ -750,7 +751,6 @@ const App = {
         if (!this.configDialog) return;
 
         this.configForm = document.getElementById('configForm');
-        this.configFeedback = document.getElementById('configFeedback');
         this.configSaveBtn = document.getElementById('configSaveBtn');
         this.configCancelBtn = document.getElementById('configCancelBtn');
         this.configInputs = {
@@ -770,11 +770,84 @@ const App = {
         this.configForm?.addEventListener('submit', (event) => this.submitConfigForm(event));
     },
 
+    initNotifications() {
+        this.notificationRoot = document.getElementById('notificationRoot');
+        if (this.notificationRoot && !this.notificationRoot.querySelector('.toast-container')) {
+            const container = document.createElement('div');
+            container.className = 'toast-container pointer-events-auto';
+            this.notificationRoot.appendChild(container);
+        }
+    },
+
+    showNotification({ title = 'Notification', message = '', tone = 'info', duration = 4000 } = {}) {
+        if (!this.notificationRoot) return;
+
+        const container = this.notificationRoot.querySelector('.toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = `toast toast--${tone} pointer-events-auto`;
+
+        const content = document.createElement('div');
+        content.className = 'toast__content';
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'toast__title';
+        titleEl.textContent = title;
+
+        const messageEl = document.createElement('div');
+        messageEl.className = 'toast__message';
+        messageEl.textContent = message;
+
+        content.appendChild(titleEl);
+        if (message) {
+            content.appendChild(messageEl);
+        }
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'toast__close';
+        closeBtn.type = 'button';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.addEventListener('click', () => {
+            this.dismissNotification(toast);
+        });
+
+        toast.appendChild(content);
+        toast.appendChild(closeBtn);
+
+        container.appendChild(toast);
+
+        requestAnimationFrame(() => {
+            toast.classList.add('show');
+        });
+
+        let timeoutId;
+        if (duration > 0) {
+            timeoutId = setTimeout(() => this.dismissNotification(toast), duration);
+        }
+
+        const dismiss = () => {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            this.dismissNotification(toast);
+        };
+
+        return { element: toast, dismiss };
+    },
+
+    dismissNotification(toast) {
+        if (!toast) return;
+        toast.classList.remove('show');
+        setTimeout(() => {
+            toast.remove();
+        }, 250);
+    },
+
     async openConfigDialog() {
         if (!this.configDialog) return;
 
         this.configForm?.reset();
-        this.setConfigFeedback('');
         this.toggleConfigLoading(true, 'Loading...');
 
         this.configDialog.classList.add('active');
@@ -782,10 +855,13 @@ const App = {
         try {
             const cfg = await API.getConfig();
             this.populateConfigForm(cfg);
-            this.setConfigFeedback('');
         } catch (error) {
             console.error('Failed to load configuration:', error);
-            this.setConfigFeedback(error.message || 'Failed to load configuration.', 'error');
+            this.showNotification({
+                title: 'Failed to load configuration',
+                message: error.message || 'Please try again shortly.',
+                tone: 'error'
+            });
         } finally {
             this.toggleConfigLoading(false);
         }
@@ -795,7 +871,6 @@ const App = {
         if (!this.configDialog) return;
         this.configDialog.classList.remove('active');
         this.toggleConfigLoading(false);
-        this.setConfigFeedback('');
     },
 
     async submitConfigForm(event) {
@@ -811,18 +886,25 @@ const App = {
         };
 
         this.toggleConfigLoading(true);
-        this.setConfigFeedback('Saving configuration...', 'info');
-
         try {
             const response = await API.updateConfig(payload);
             if (response?.config) {
                 this.populateConfigForm(response.config);
             }
-            this.setConfigFeedback(response?.message || 'Configuration updated.', 'success');
-            setTimeout(() => this.closeConfigDialog(), 1000);
+            const hostHint = `${payload.listen_host || '0.0.0.0'}:${payload.listen_port || '5000'}`;
+            this.showNotification({
+                title: 'Configuration Saved',
+                message: `Reload in progress. Access the dashboard at http://${hostHint}/ once it comes back online.`,
+                tone: 'success'
+            });
+            setTimeout(() => this.closeConfigDialog(), 4000);
         } catch (error) {
             console.error('Failed to update configuration:', error);
-            this.setConfigFeedback(error.message || 'Failed to update configuration.', 'error');
+            this.showNotification({
+                title: 'Save Failed',
+                message: error.message || 'Your changes could not be saved.',
+                tone: 'error'
+            });
         } finally {
             this.toggleConfigLoading(false);
         }
@@ -835,30 +917,6 @@ const App = {
         if (this.configInputs.routerPassword) this.configInputs.routerPassword.value = cfg.router_password ?? '';
         if (this.configInputs.listenHost) this.configInputs.listenHost.value = cfg.listen_host ?? '';
         if (this.configInputs.listenPort) this.configInputs.listenPort.value = cfg.listen_port ?? '';
-    },
-
-    setConfigFeedback(message, tone = 'info') {
-        if (!this.configFeedback) return;
-
-        const baseClasses = ['text-sm', 'min-h-[1.5rem]'];
-        let toneClass = 'text-gray-300';
-
-        if (!message) {
-            this.configFeedback.textContent = '';
-            this.configFeedback.className = baseClasses.join(' ');
-            return;
-        }
-
-        if (tone === 'error') {
-            toneClass = 'text-red-400';
-        } else if (tone === 'success') {
-            toneClass = 'text-green-400';
-        } else {
-            toneClass = 'text-gray-300';
-        }
-
-        this.configFeedback.textContent = message;
-        this.configFeedback.className = `${baseClasses.join(' ')} ${toneClass}`;
     },
 
     toggleConfigLoading(isLoading, pendingLabel = 'Saving...') {
@@ -892,58 +950,35 @@ const App = {
 };
 
 // Dialog functionality
-async function showResetIpDialog() {
+async function handleRenewIp() {
     const resetIpBtn = document.getElementById('resetIp');
     const rebootBtn = document.getElementById('rebootBtn');
-    const dialog = document.getElementById('infoDialog');
-    const dialogStatus = document.getElementById('dialogStatus');
-    const closeDialogBtn = document.getElementById('closeDialogBtn');
-    const closeDialog = document.getElementById('closeDialog');
 
-    // Reset dialog content and hide close button initially
-    dialogStatus.innerHTML = '';
-    closeDialogBtn.classList.add('hidden');
-    document.getElementById("dialogTitle").textContent = 'Reset IP';
-    document.getElementById("dialogInfo").textContent = 'Please wait until new public IP shows up';
+    if (resetIpBtn) {
+        resetIpBtn.disabled = true;
+        resetIpBtn.classList.add('opacity-60', 'cursor-not-allowed');
+    }
+    if (rebootBtn) {
+        rebootBtn.disabled = true;
+        rebootBtn.classList.add('opacity-60', 'cursor-not-allowed');
+    }
 
-    // Disable close functionality during process
-    resetIpBtn.style.pointerEvents = 'none';
-    rebootBtn.style.pointerEvents = 'none';
-    closeDialogBtn.style.pointerEvents = 'none';
-    closeDialog.style.pointerEvents = 'none';
-    dialog.style.pointerEvents = 'none';
-
-    // Show dialog
-    dialog.classList.add('active');
-
-    // Add loading animation
-    const loadingHtml = `<div id="loading" class="flex justify-center my-4">
-                            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                         </div>`;
-    dialogStatus.insertAdjacentHTML('beforeend', loadingHtml);
+    const loadingToast = App.showNotification({
+        title: 'Renewing WAN IP',
+        message: 'Stand by while we fetch a fresh public IP...',
+        tone: 'info',
+        duration: 0,
+    });
 
     try {
-        // IP reset process
         const currentStatus = await API.getPreloginStatus();
-        const oldIp = currentStatus?.wan_conns?.[0]?.ipConns?.[0]?.ExternalIPAddress;
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-gray-300">- Current public IP is <b>${oldIp}</b></p>`);
+        const oldIp = currentStatus?.wan_conns?.[0]?.ipConns?.[0]?.ExternalIPAddress || 'unknown';
 
-        // Reset IP by changing APN
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-gray-300">- Restarting [1]...</p>`);
-        await API.setApnInternet("internet");
+        await API.setApnInternet('internet');
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await API.setApnInternet('xlunlimited');
+        await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        // Wait 1 second between APN changes
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-gray-300">- Restarting [2]...</p>`);
-        await API.setApnInternet("xlunlimited");
-
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-gray-300">- Restart OK, waiting for new IP...</p>`);
-
-        // Wait 1 second before starting IP check
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Poll until new IP is available
         let newIp = null;
         let attempts = 0;
         const maxAttempts = 30;
@@ -951,119 +986,87 @@ async function showResetIpDialog() {
         while (!newIp && attempts < maxAttempts) {
             attempts++;
             const status = await API.getPreloginStatus();
-            newIp = status?.wan_conns?.[0]?.ipConns?.[0]?.ExternalIPAddress || null;
-
-            if (!newIp) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            } else if (oldIp === newIp) {
-                newIp = null;
-                await new Promise(resolve => setTimeout(resolve, 1000));
+            const candidate = status?.wan_conns?.[0]?.ipConns?.[0]?.ExternalIPAddress || null;
+            if (candidate && candidate !== oldIp) {
+                newIp = candidate;
+                break;
             }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
         }
 
         if (newIp) {
-            dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-gray-300">- New public IP is <b>${newIp}</b></p>`);
+            App.showNotification({
+                title: 'WAN IP Renewed',
+                message: `New public IP acquired: ${newIp}.`,
+                tone: 'success',
+            });
         } else {
-            dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-red-400">- Failed to get new IP after ${maxAttempts} attempts</p>`);
+            App.showNotification({
+                title: 'Renewal Timed Out',
+                message: 'Could not detect a new IP after multiple attempts. Please try again later.',
+                tone: 'error',
+            });
         }
     } catch (error) {
         console.error('Error during IP reset:', error);
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-red-400">- Error: ${error.message}</p>`);
+        App.showNotification({
+            title: 'Renew Failed',
+            message: error.message || 'Unexpected error while renewing WAN IP.',
+            tone: 'error',
+        });
     } finally {
-        // Remove loading animation when done
-        const loading = document.getElementById('loading');
-        if (loading) loading.remove();
+        if (loadingToast && loadingToast.dismiss) {
+            loadingToast.dismiss();
+        }
 
-        // Show close button after all steps are done
-        closeDialogBtn.classList.remove('hidden');
-
-        // Restore close functionality
-        resetIpBtn.style.pointerEvents = 'auto';
-        rebootBtn.style.pointerEvents = 'auto';
-        closeDialogBtn.style.pointerEvents = 'auto';
-        closeDialog.style.pointerEvents = 'auto';
-        dialog.style.pointerEvents = 'auto';
+        if (resetIpBtn) {
+            resetIpBtn.disabled = false;
+            resetIpBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+        }
+        if (rebootBtn) {
+            rebootBtn.disabled = false;
+            rebootBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+        }
     }
 }
 
-function hideResetIpDialog() {
-    const dialog = document.getElementById('infoDialog');
-    const closeDialogBtn = document.getElementById('closeDialogBtn');
-    const closeDialog = document.getElementById('closeDialog');
-
-    // Only allow closing if the button is visible (process complete)
-    if (!closeDialogBtn.classList.contains('hidden')) {
-        dialog.classList.remove('active');
-
-        // Clear the status messages for next time
-        document.getElementById('dialogStatus').innerHTML = '';
-
-        // Ensure close button is hidden again for next time
-        closeDialogBtn.classList.add('hidden');
-
-        // Restore pointer events (in case they were disabled)
-        closeDialogBtn.style.pointerEvents = 'auto';
-        closeDialog.style.pointerEvents = 'auto';
-        dialog.style = '';
-    }
-}
-
-async function showRebootDialog() {
+async function handleRebootDevice() {
     const rebootBtn = document.getElementById('rebootBtn');
-    const dialog = document.getElementById('infoDialog');
-    const dialogStatus = document.getElementById('dialogStatus');
-    const closeDialogBtn = document.getElementById('closeDialogBtn');
-    const closeDialog = document.getElementById('closeDialog');
+    if (rebootBtn) {
+        rebootBtn.disabled = true;
+        rebootBtn.classList.add('opacity-60', 'cursor-not-allowed');
+    }
 
-    // Reset dialog content and hide close button initially
-    dialogStatus.innerHTML = '';
-    closeDialogBtn.classList.add('hidden');
-    document.getElementById("dialogTitle").textContent = 'Reboot Device';
-    document.getElementById("dialogInfo").textContent = 'Please wait while the device reboots';
-
-    // Disable close functionality during process
-    rebootBtn.style.pointerEvents = 'none';
-    closeDialogBtn.style.pointerEvents = 'none';
-    closeDialog.style.pointerEvents = 'none';
-    dialog.style.pointerEvents = 'none';
-
-    // Show dialog
-    dialog.classList.add('active');
-
-    // Add loading animation
-    const loadingHtml = `<div id="loading" class="flex justify-center my-4">
-                            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                         </div>`;
-    dialogStatus.insertAdjacentHTML('beforeend', loadingHtml);
+    const loadingToast = App.showNotification({
+        title: 'Rebooting Router',
+        message: 'Sending reboot command. The device will be unavailable momentarily.',
+        tone: 'info',
+        duration: 0,
+    });
 
     try {
-        // Initiate reboot
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-gray-300">- Sending reboot command...</p>`);
         await API.doReboot();
-
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-gray-300">- Reboot command sent successfully</p>`);
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-gray-300">- Device will restart shortly</p>`);
-
-        // The device will now reboot, so we can't check status anymore
-        // Just show a message that the user should wait for the device to come back online
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-blue-400">- Please wait 1-2 minutes for the device to restart</p>`);
-
+        App.showNotification({
+            title: 'Reboot Command Sent',
+            message: 'Router is restarting. Please allow 1-2 minutes before reconnecting.',
+            tone: 'success',
+        });
     } catch (error) {
         console.error('Error during reboot:', error);
-        dialogStatus.insertAdjacentHTML('beforeend', `<p class="text-sm mt-1 text-red-400">- Error: ${error.message}</p>`);
+        App.showNotification({
+            title: 'Reboot Failed',
+            message: error.message || 'Unable to reboot the device.',
+            tone: 'error',
+        });
     } finally {
-        // Remove loading animation when done
-        const loading = document.getElementById('loading');
-        if (loading) loading.remove();
+        if (loadingToast && loadingToast.dismiss) {
+            loadingToast.dismiss();
+        }
 
-        // Show close button after all steps are done
-        closeDialogBtn.classList.remove('hidden');
-
-        // Restore close functionality
-        rebootBtn.style.pointerEvents = 'auto';
-        closeDialogBtn.style.pointerEvents = 'auto';
-        closeDialog.style.pointerEvents = 'auto';
-        dialog.style.pointerEvents = 'auto';
+        if (rebootBtn) {
+            rebootBtn.disabled = false;
+            rebootBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+        }
     }
 }
 
@@ -1142,13 +1145,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // Reset IP button
     const resetIpBtn = document.getElementById('resetIp');
     if (resetIpBtn) {
-        resetIpBtn.addEventListener('click', showResetIpDialog);
+        resetIpBtn.addEventListener('click', handleRenewIp);
+    }
+
+    const refreshIpBtn = document.getElementById('refreshIp');
+    if (refreshIpBtn) {
+        refreshIpBtn.addEventListener('click', handleRenewIp);
     }
 
     // Reboot device
     const rebootBtn = document.getElementById('rebootBtn');
     if (rebootBtn) {
-        rebootBtn.addEventListener('click', showRebootDialog);
+        rebootBtn.addEventListener('click', handleRebootDevice);
     }
 
     // SMS button
@@ -1160,6 +1168,7 @@ document.addEventListener('DOMContentLoaded', function() {
     smsCloseDialog.addEventListener('click', hideSmsDialog);
 
     // Close dialog buttons
+    // Legacy close dialog buttons (kept for backwards compatibility)
     const closeButtons = [
         document.getElementById('closeDialog'),
         document.getElementById('closeDialogBtn')
@@ -1167,19 +1176,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     closeButtons.forEach(button => {
         if (button) {
-            button.addEventListener('click', hideResetIpDialog);
+            button.addEventListener('click', () => {
+                const overlay = document.getElementById('infoDialog');
+                if (overlay) {
+                    overlay.classList.remove('active');
+                }
+            });
         }
     });
-
-    // Close dialog when clicking outside
-    const dialogOverlay = document.getElementById('infoDialog');
-    if (dialogOverlay) {
-        dialogOverlay.addEventListener('click', function(e) {
-            if (e.target === dialogOverlay) {
-                hideResetIpDialog();
-            }
-        });
-    }
 });
 
 // Data expiration functionality

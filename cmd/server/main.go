@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"nokia_router/internal/config"
 	"nokia_router/internal/router"
@@ -104,14 +106,63 @@ func runCommand(args []string) error {
 	}
 
 	client := router.NewClient(cfg)
-	serverHandler := server.New(client, store, *cfgPath, cfg).Handler()
 
-	addr := net.JoinHostPort(cfg.ListenHost, cfg.ListenPort)
-	logger.Printf("Starting server on %s", addr)
-	if err := http.ListenAndServe(addr, serverHandler); err != nil {
-		return fmt.Errorf("listen: %w", err)
+	reloadCh := make(chan config.Config, 1)
+	srv := server.New(client, store, *cfgPath, cfg, func(updated config.Config) {
+		select {
+		case reloadCh <- updated:
+		default:
+			select {
+			case <-reloadCh:
+			default:
+			}
+			reloadCh <- updated
+		}
+	})
+
+	handler := srv.Handler()
+	currentCfg := srv.Config()
+
+	for {
+		addr := net.JoinHostPort(currentCfg.ListenHost, currentCfg.ListenPort)
+		httpServer := &http.Server{
+			Addr:    addr,
+			Handler: handler,
+		}
+
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- httpServer.ListenAndServe()
+		}()
+
+		logger.Printf("Starting server on %s", addr)
+		restartRequested := false
+
+	serverLoop:
+		for {
+			select {
+			case err := <-errCh:
+				if err != nil && !errors.Is(err, http.ErrServerClosed) {
+					return fmt.Errorf("listen: %w", err)
+				}
+				if restartRequested {
+					restartRequested = false
+					break serverLoop
+				}
+				return nil
+			case updatedCfg := <-reloadCh:
+				currentCfg = updatedCfg
+				restartRequested = true
+				logger.Printf("Configuration changed, reloading server...")
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if err := httpServer.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					cancel()
+					return fmt.Errorf("shutdown: %w", err)
+				}
+				cancel()
+			}
+		}
 	}
-	return nil
 }
 
 func setupCommand(args []string) error {

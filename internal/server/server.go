@@ -30,15 +30,18 @@ type Server struct {
 
 	store  *settings.Store
 	logger *log.Logger
+
+	reloadFn func(config.Config)
 }
 
-func New(client *router.Client, store *settings.Store, cfgPath string, cfg config.Config) *Server {
+func New(client *router.Client, store *settings.Store, cfgPath string, cfg config.Config, reloadFn func(config.Config)) *Server {
 	return &Server{
-		client:  client,
-		cfgPath: cfgPath,
-		cfg:     cfg,
-		store:   store,
-		logger:  log.New(os.Stdout, "[server] ", log.LstdFlags),
+		client:   client,
+		cfgPath:  cfgPath,
+		cfg:      cfg,
+		store:    store,
+		logger:   log.New(os.Stdout, "[server] ", log.LstdFlags),
+		reloadFn: reloadFn,
 	}
 }
 
@@ -64,6 +67,11 @@ func (s *Server) setConfig(cfg config.Config) {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 	s.cfg = cfg
+}
+
+// Config returns the current configuration snapshot.
+func (s *Server) Config() config.Config {
+	return s.getConfig()
 }
 
 func (s *Server) Handler() http.Handler {
@@ -404,6 +412,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		s.setConfig(updated)
 		s.setClient(router.NewClient(updated))
 		s.logger.Printf("Configuration updated at %s", s.cfgPath)
+
+		if s.reloadFn != nil {
+			go s.reloadFn(updated)
+		}
 
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"message": "configuration updated",
