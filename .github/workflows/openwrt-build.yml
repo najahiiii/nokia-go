@@ -111,7 +111,10 @@ jobs:
           chmod +x .github/scripts/ipkg-make-index
 
           (cd "$REPO_DIR" && MKHASH="$GITHUB_WORKSPACE/.github/scripts/mkhash" "$GITHUB_WORKSPACE/.github/scripts/ipkg-make-index" . > Packages)
-          gzip -9f "$REPO_DIR/Packages"
+          gzip -9k "$REPO_DIR/Packages"
+
+          head -n 20 "$REPO_DIR/Packages" || true
+          zcat "$REPO_DIR/Packages.gz" | head -n 20 || true
 
       - name: Upload artifact (IPKs)
         uses: actions/upload-artifact@v4
@@ -123,7 +126,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}-repo-${{ steps.index.outputs.arch }}
-          path: repo/*/*.gz
+          path: |
+            repo/*/Packages
+            repo/*/Packages.gz
 
       - name: Upload releases
         uses: svenstaro/upload-release-action@v2
@@ -134,3 +139,63 @@ jobs:
           file_glob: true
           overwrite: true
           make_latest: true
+
+      - name: Prepare Pages content
+        run: |
+          set -euo pipefail
+          SITE_DIR="site"
+          ROOT_TPL=".github/pages/index.html.tpl"
+          ARCH_TPL=".github/pages/arch-index.html.tpl"
+
+          [ -f "$ROOT_TPL" ] && [ -f "$ARCH_TPL" ] || { echo "Missing template files"; exit 1; }
+
+          mkdir -p "$SITE_DIR"
+          cp -a repo "$SITE_DIR/"
+
+          touch "$SITE_DIR/.nojekyll"
+
+          ARCH_LIST_FILE="$(mktemp)"
+          for d in $(find repo -mindepth 1 -maxdepth 1 -type d | sort); do
+            arch="$(basename "$d")"
+            printf '<li><a href="repo/%s/">repo/%s/</a></li>\n' "$arch" "$arch" >> "$ARCH_LIST_FILE"
+
+            FILE_LIST_FILE="$(mktemp)"
+            for f in $(ls -1 "$d"); do
+              printf '<li><a href="%s">%s</a></li>\n' "$f" "$f" >> "$FILE_LIST_FILE"
+            done
+
+            mkdir -p "$SITE_DIR/repo/$arch"
+            sed -e "s/{{ARCH}}/${arch}/g" "$ARCH_TPL" | \
+              awk -v fl="$FILE_LIST_FILE" '
+                /{{FILE_LIST}}/ { while ((getline line < fl) > 0) print line; next }
+                { print }
+              ' > "$SITE_DIR/repo/$arch/index.html"
+
+            rm -f "$FILE_LIST_FILE"
+          done
+
+          awk -v lf="$ARCH_LIST_FILE" '
+            /{{ARCH_LIST}}/ { while ((getline line < lf) > 0) print line; next }
+            { print }
+          ' "$ROOT_TPL" > "$SITE_DIR/index.html"
+
+          rm -f "$ARCH_LIST_FILE"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
