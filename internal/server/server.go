@@ -99,6 +99,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/sms", s.handleSmsList)
 	mux.HandleFunc("/api/set_sms_state", s.handleSetSmsState)
 	mux.HandleFunc("/api/cell_identification", s.handleCellIdentification)
+	mux.HandleFunc("/api/led_status", s.handleLedStatus)
+	mux.HandleFunc("/api/led_state", s.handleLedState)
 	mux.HandleFunc("/api/config/listener_available", s.handleConfigListenerCheck)
 	mux.HandleFunc("/api/config", s.handleConfig)
 
@@ -347,6 +349,155 @@ func (s *Server) handleCellIdentification(w http.ResponseWriter, r *http.Request
 		client := s.getClient()
 		return client.PostCellularIdentification(ctx, session)
 	})
+}
+
+func (s *Server) handleLedState(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
+			return s.fetchNormalizedLedState(ctx, session)
+		})
+	case http.MethodPost:
+		enableParam := strings.TrimSpace(r.URL.Query().Get("enable"))
+		var enable bool
+		var parsed bool
+		if enableParam != "" {
+			val, err := strconv.ParseBool(enableParam)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid 'enable' value"})
+				return
+			}
+			enable = val
+			parsed = true
+		}
+		if !parsed {
+			var payload struct {
+				Enable *bool `json:"enable"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+				return
+			}
+			if payload.Enable == nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "'enable' field required"})
+				return
+			}
+			enable = *payload.Enable
+		}
+
+		client := s.getClient()
+		session, loginResp, err := client.GetLogin(false)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if session == nil {
+			writeJSON(w, http.StatusOK, loginResp)
+			return
+		}
+
+		result, err := client.LedState(r.Context(), session, enable)
+		if err != nil {
+			session, loginResp, err = client.GetLogin(true)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if session == nil {
+				writeJSON(w, http.StatusOK, loginResp)
+				return
+			}
+			result, err = client.LedState(r.Context(), session, enable)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, result)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleLedStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
+		return s.fetchNormalizedLedState(ctx, session)
+	})
+}
+
+func (s *Server) fetchNormalizedLedState(ctx context.Context, session *router.LoginSession) (map[string]interface{}, error) {
+	client := s.getClient()
+	raw, err := client.GetLedState(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	return normalizeLedStateResponse(raw), nil
+}
+
+func normalizeLedStateResponse(raw map[string]interface{}) map[string]interface{} {
+	statusLED := extractLedFlag(raw, "X_ALU_COM_StatusLED_Enable")
+	signalLED := extractLedFlag(raw, "X_ALU_COM_SignalLED_Enable")
+
+	return map[string]interface{}{
+		"enabled":    statusLED && signalLED,
+		"status_led": statusLED,
+		"signal_led": signalLED,
+	}
+}
+
+func extractLedFlag(raw map[string]interface{}, key string) bool {
+	if raw == nil {
+		return false
+	}
+
+	ledGlobal, ok := raw["LEDGlobalSts"]
+	if !ok {
+		return false
+	}
+
+	if data, ok := ledGlobal.(map[string]interface{}); ok {
+		return parseTruthy(data[key])
+	}
+	return false
+}
+
+func parseTruthy(value interface{}) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	case int64:
+		return v != 0
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" {
+			return false
+		}
+
+		switch strings.ToLower(s) {
+		case "true", "on", "enabled", "enable", "yes":
+			return true
+		case "false", "off", "disabled", "disable", "no":
+			return false
+		}
+
+		if num, err := strconv.Atoi(s); err == nil {
+			return num != 0
+		}
+	case json.Number:
+		if val, err := v.Int64(); err == nil {
+			return val != 0
+		}
+	}
+	return false
 }
 
 func (s *Server) withSession(w http.ResponseWriter, r *http.Request, fn func(context.Context, *router.LoginSession) (interface{}, error)) {

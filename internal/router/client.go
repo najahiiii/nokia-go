@@ -201,6 +201,19 @@ func (c *Client) GetWlan5Configs(ctx context.Context, session *LoginSession) (ma
 	return c.getAuthenticated(ctx, "wlan_config_status_web_app.cgi?v=11ac", session, nil)
 }
 
+func (c *Client) GetLedState(ctx context.Context, session *LoginSession) (map[string]interface{}, error) {
+	return c.getAuthenticated(ctx, "ledctrl_status_web_app.cgi", session, nil)
+}
+
+func (c *Client) LedState(ctx context.Context, session *LoginSession, enable bool) (map[string]interface{}, error) {
+	state := "off"
+	if enable {
+		state = "on"
+	}
+	plaintext := "EnableGbl=" + state + "&EnableSigGbl=" + state + "&csrf_token="
+	return c.PostCSRFEncrypted(ctx, "ledctrl_web_app.cgi?SetLedGlb", session, plaintext)
+}
+
 func (c *Client) PostSetAPN(ctx context.Context, session *LoginSession, newAPN string) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"version":    1,

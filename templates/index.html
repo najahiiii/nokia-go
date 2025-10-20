@@ -11,7 +11,10 @@
   </head>
 
   <body class="bg-[#1E1E1E] text-[#e5e5e5] font-inter text-sm leading-relaxed">
-    <div id="notificationRoot" class="fixed inset-0 pointer-events-none z-[1100]"></div>
+    <div
+      id="notificationRoot"
+      class="fixed inset-0 pointer-events-none z-[1100]"
+    ></div>
     <div class="max-w-[1440px] mx-auto p-5 sm:p-6 md:p-8">
       <header class="flex justify-between items-center pb-6">
         <h1 class="font-semibold text-base m-0">Nokia Fastmile 5G Gateway 2</h1>
@@ -363,11 +366,27 @@
             <span class="font-semibold text-xs" id="dataExpired"></span>
           </div>
           <hr class="border-t border-gray-600 mb-3" />
-          <!-- <label class="flex justify-between py-1 mb-3 cursor-pointer">
-					<span class="text-xs font-semibold">LED Light</span>
-					<input type="checkbox" value="" class="sr-only peer" checked>
-					<div class="relative w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-				</label> -->
+          <div class="flex justify-between items-center py-1 mb-3">
+            <label
+              for="ledSwitch"
+              class="font-semibold text-xs cursor-pointer select-none"
+            >
+              LED
+            </label>
+            <label
+              for="ledSwitch"
+              class="relative inline-flex h-6 w-11 items-center cursor-pointer"
+            >
+              <input type="checkbox" id="ledSwitch" class="sr-only peer" />
+              <span
+                class="absolute inset-0 rounded-full bg-gray-600 transition-colors duration-200 peer-checked:bg-[#0052cc]"
+              ></span>
+              <span
+                class="absolute left-1 h-4 w-4 rounded-full bg-white transition-transform duration-200 peer-checked:translate-x-5"
+              ></span>
+            </label>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
           <button
             id="resetIp"
             type="button"

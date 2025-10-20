@@ -80,6 +80,14 @@ const API = {
         return this.fetchData('status_web');
     },
 
+    getCurrentLedState() {
+        return this.fetchData('led_state');
+    },
+
+    setLedState(enable) {
+        return this.sendJSON('led_state', { enable });
+    },
+
     setApnInternet(apn) {
         return this.fetchData('set_apn', `apn=${encodeURIComponent(apn)}`);
     },
@@ -1176,6 +1184,149 @@ function hideSmsDialog() {
     dialog.classList.remove('active');
 }
 
+function initLedSwitchControl() {
+    const ledSwitch = document.getElementById('ledSwitch');
+    if (!ledSwitch) return;
+
+    const switchLabel = ledSwitch.parentElement;
+    const storageKey = 'nokia-led-switch-state';
+
+    const setDisabled = (disabled) => {
+        ledSwitch.disabled = disabled;
+        if (switchLabel) {
+            switchLabel.classList.toggle('pointer-events-none', disabled);
+            switchLabel.classList.toggle('opacity-60', disabled);
+        }
+    };
+
+    try {
+        const savedState = localStorage.getItem(storageKey);
+        if (savedState !== null) {
+            ledSwitch.checked = savedState === 'true';
+        }
+    } catch (_) {
+        // Ignore storage errors (e.g., private mode restrictions)
+    }
+
+    let isUpdating = false;
+
+    const toBool = (value) => {
+        if (typeof value === 'boolean') {
+            return value;
+        }
+        if (typeof value === 'number') {
+            return value !== 0;
+        }
+        if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            if (!normalized) {
+                return false;
+            }
+            if (['true', 'on', 'enabled', 'enable', 'yes', '1'].includes(normalized)) {
+                return true;
+            }
+            if (['false', 'off', 'disabled', 'disable', 'no', '0'].includes(normalized)) {
+                return false;
+            }
+            const numeric = Number(value);
+            return !Number.isNaN(numeric) && numeric !== 0;
+        }
+        return Boolean(value);
+    };
+
+    const parseLedState = (data) => {
+        if (!data || typeof data !== 'object') {
+            return null;
+        }
+
+        if (typeof data.enabled === 'boolean') {
+            return data.enabled;
+        }
+        if (typeof data.enabled === 'number') {
+            return data.enabled !== 0;
+        }
+
+        if (typeof data.status_led !== 'undefined' && typeof data.signal_led !== 'undefined') {
+            return toBool(data.status_led) && toBool(data.signal_led);
+        }
+
+        const ledGlobal = data.LEDGlobalSts;
+        if (ledGlobal && typeof ledGlobal === 'object') {
+            const status = toBool(ledGlobal.X_ALU_COM_StatusLED_Enable);
+            const signal = toBool(ledGlobal.X_ALU_COM_SignalLED_Enable);
+            if (typeof ledGlobal.X_ALU_COM_StatusLED_Enable !== 'undefined' || typeof ledGlobal.X_ALU_COM_SignalLED_Enable !== 'undefined') {
+                return status && signal;
+            }
+        }
+
+        return null;
+    };
+
+    (async () => {
+        isUpdating = true;
+        setDisabled(true);
+        try {
+            const response = await API.getCurrentLedState();
+            const current = parseLedState(response);
+            if (current !== null) {
+                ledSwitch.checked = current;
+                try {
+                    localStorage.setItem(storageKey, String(current));
+                } catch (_) {
+                    // Ignore storage errors
+                }
+            }
+        } catch (error) {
+            console.error('Failed to fetch current LED state:', error);
+        } finally {
+            setDisabled(false);
+            isUpdating = false;
+        }
+    })();
+
+    ledSwitch.addEventListener('change', async () => {
+        if (isUpdating) return;
+
+        const desiredState = ledSwitch.checked;
+        isUpdating = true;
+        setDisabled(true);
+
+        try {
+            await API.setLedState(desiredState);
+
+            try {
+                localStorage.setItem(storageKey, String(desiredState));
+            } catch (_) {
+                // Ignore storage errors
+            }
+
+            App.showNotification({
+                title: 'LEDs Updated',
+                message: desiredState ? 'Device LEDs enabled.' : 'Device LEDs disabled.',
+                tone: 'success'
+            });
+        } catch (error) {
+            console.error('Failed to update LED state:', error);
+            ledSwitch.checked = !desiredState;
+
+            try {
+                localStorage.setItem(storageKey, String(ledSwitch.checked));
+            } catch (_) {
+                // Ignore storage errors
+            }
+
+            App.showNotification({
+                title: 'LED Update Failed',
+                message: error.message || 'Unable to change LED state.',
+                tone: 'error'
+            });
+        } finally {
+            setDisabled(false);
+            isUpdating = false;
+        }
+    });
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
     // Reset IP button
@@ -1220,6 +1371,8 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     });
+
+    initLedSwitchControl();
 });
 
 // Data expiration functionality
