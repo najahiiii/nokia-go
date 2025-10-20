@@ -1,0 +1,112 @@
+name: Build OpenWrt Package
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+    env:
+      PACKAGE_NAME: luci-app-nokia-go
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        run: |
+          mkdir -p build
+          RAW_VERSION=$(tr -d '\n' < VERSION)
+          BASE_VERSION=${RAW_VERSION#v}
+          if [ -z "$BASE_VERSION" ]; then
+            BASE_VERSION="$RAW_VERSION"
+          fi
+          GIT_COMMIT=$(git rev-parse --short HEAD)
+          if git diff --quiet --ignore-submodules HEAD; then
+            GIT_DIRTY=false
+          else
+            GIT_DIRTY=true
+          fi
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -trimpath \
+            -ldflags="-s -w -X nokia_router/cmd/server.appVersion=${BASE_VERSION} -X nokia_router/cmd/server.gitCommit=${GIT_COMMIT} -X nokia_router/cmd/server.gitDirty=${GIT_DIRTY}" \
+            -o build/nokia ./cmd/server
+
+      - name: Compress binary with UPX
+        uses: crazy-max/ghaction-upx@v3
+        with:
+          version: latest
+          files: build/nokia
+          args: -q --best --lzma
+
+      - name: Prepare package
+        id: prep
+        run: |
+          RAW_HASH="$(git describe --tags --dirty=-modified --always 2>/dev/null || echo ${GITHUB_SHA::7})"
+          RAW_BASE_VERSION="$(tr -d '\n' < VERSION)"
+          BASE_VERSION="${RAW_BASE_VERSION#v}"
+          if [ -z "$BASE_VERSION" ]; then
+            BASE_VERSION="$RAW_BASE_VERSION"
+          fi
+          TRIMMED_HASH="${RAW_HASH#v}"
+
+          if [ "$TRIMMED_HASH" = "$BASE_VERSION" ]; then
+            VERSION="$BASE_VERSION"
+          elif [ "${TRIMMED_HASH#${BASE_VERSION}-}" != "$TRIMMED_HASH" ]; then
+            VERSION="$TRIMMED_HASH"
+          else
+            VERSION="${BASE_VERSION}-${TRIMMED_HASH}"
+          fi
+
+          REPO="${{ github.repository }}"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          VERSION_LABEL="v${VERSION}"
+          echo "VERSION_LABEL=$VERSION_LABEL" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=$PACKAGE_NAME-$VERSION_LABEL" >> "$GITHUB_ENV"
+
+          install -d -m 0755 package/root/usr/sbin
+          install -d -m 0755 package/root/etc/init.d
+          install -d -m 0755 package/root/CONTROL
+
+          install -m 0755 build/nokia package/root/usr/sbin/nokia
+          install -m 0755 services/nokia package/root/etc/init.d/nokia
+          sed -e "s/__VERSION__/${VERSION}/" \
+              -e "s#__REPOSITORY__#${REPO}#" openwrt/control > package/root/CONTROL/control
+
+      - name: Build IPK package
+        run: |
+          DIST_DIR="$(pwd)/dist"
+          TMP_BUILD="$(mktemp -d)"
+          mkdir -p "$DIST_DIR"
+          chmod +x .github/scripts/ipkg-build
+          PKG_TMPDIR="$TMP_BUILD" .github/scripts/ipkg-build package/root "$DIST_DIR"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: dist/*.ipk
+
+      - name: Upload releases
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ github.ref_name }}
+          file: dist/*.ipk
+          file_glob: true
+          overwrite: true

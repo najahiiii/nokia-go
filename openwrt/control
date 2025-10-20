@@ -1,0 +1,10 @@
+Package: luci-app-nokia-go
+Version: __VERSION__
+Architecture: aarch64_generic
+Maintainer: Ahmad Thoriq Najahi
+Section: utils
+Priority: optional
+Depends: libc, libpthread, ca-certificates
+Source: https://github.com/__REPOSITORY__
+License: Apache-2.0
+Description: Web dashboard for Nokia routers written in Go.
