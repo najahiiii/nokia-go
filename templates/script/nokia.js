@@ -8,7 +8,16 @@ const API = {
         const response = await fetch(url);
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            let message = `HTTP error! status: ${response.status}`;
+            try {
+                const errorPayload = await response.json();
+                if (errorPayload?.error) {
+                    message = errorPayload.error;
+                }
+            } catch (_) {
+                // ignore body parse issues
+            }
+            throw new Error(message);
         }
 
         return await response.json();
@@ -117,6 +126,17 @@ const API = {
 
     updateConfig(config) {
         return this.sendJSON('config', config);
+    },
+
+    checkListener(host, port) {
+        const params = new URLSearchParams();
+        if (host !== undefined && host !== null) {
+            params.set('host', host);
+        }
+        if (port !== undefined && port !== null) {
+            params.set('port', port);
+        }
+        return this.fetchData('config/listener_available', params.toString());
     }
 };
 
@@ -886,12 +906,28 @@ const App = {
         };
 
         this.toggleConfigLoading(true);
+        const targetHost = payload.listen_host;
+        const targetPort = payload.listen_port;
+
+        try {
+            await API.checkListener(targetHost, targetPort);
+        } catch (error) {
+            console.error('Listener availability check failed:', error);
+            this.showNotification({
+                title: 'Listener Unavailable',
+                message: error.message,
+                tone: 'error'
+            });
+            this.toggleConfigLoading(false);
+            return;
+        }
+
         try {
             const response = await API.updateConfig(payload);
             if (response?.config) {
                 this.populateConfigForm(response.config);
             }
-            const hostHint = `${payload.listen_host || '0.0.0.0'}:${payload.listen_port || '5000'}`;
+            const hostHint = `${targetHost || '0.0.0.0'}:${targetPort || '5000'}`;
             this.showNotification({
                 title: 'Configuration Saved',
                 message: `Reload in progress. Access the dashboard at http://${hostHint}/ once it comes back online.`,

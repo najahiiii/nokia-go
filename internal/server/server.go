@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -98,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/sms", s.handleSmsList)
 	mux.HandleFunc("/api/set_sms_state", s.handleSetSmsState)
 	mux.HandleFunc("/api/cell_identification", s.handleCellIdentification)
+	mux.HandleFunc("/api/config/listener_available", s.handleConfigListenerCheck)
 	mux.HandleFunc("/api/config", s.handleConfig)
 
 	return corsMiddleware(mux)
@@ -385,6 +387,46 @@ func (s *Server) withSession(w http.ResponseWriter, r *http.Request, fn func(con
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleConfigListenerCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	host := strings.TrimSpace(r.URL.Query().Get("host"))
+	port := strings.TrimSpace(r.URL.Query().Get("port"))
+
+	candidate := s.getConfig()
+	if host != "" {
+		candidate.ListenHost = host
+	}
+	if port != "" {
+		candidate.ListenPort = port
+	}
+
+	candidate = normalizeConfig(candidate)
+	if err := validateConfig(candidate); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if err := s.validateListener(candidate); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"available":   false,
+			"error":       err.Error(),
+			"listen_host": candidate.ListenHost,
+			"listen_port": candidate.ListenPort,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"available":   true,
+		"listen_host": candidate.ListenHost,
+		"listen_port": candidate.ListenPort,
+	})
+}
+
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -400,6 +442,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 		updated := normalizeConfig(payload)
 		if err := validateConfig(updated); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		if err := s.validateListener(updated); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
@@ -477,6 +524,24 @@ func validateConfig(cfg config.Config) error {
 		return fmt.Errorf("listen_port must be numeric: %w", err)
 	}
 
+	return nil
+}
+
+func (s *Server) validateListener(cfg config.Config) error {
+	current := s.getConfig()
+	if strings.EqualFold(strings.TrimSpace(cfg.ListenHost), strings.TrimSpace(current.ListenHost)) &&
+		strings.TrimSpace(cfg.ListenPort) == strings.TrimSpace(current.ListenPort) {
+		return nil
+	}
+
+	addr := net.JoinHostPort(cfg.ListenHost, cfg.ListenPort)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("listen address %s unavailable: %w", addr, err)
+	}
+	if err := listener.Close(); err != nil {
+		return fmt.Errorf("listen address %s unable to close probe listener: %w", addr, err)
+	}
 	return nil
 }
 
