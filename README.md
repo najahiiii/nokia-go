@@ -1,4 +1,4 @@
-# Nokia Router Dashboard (Go)
+# Nokia FastMile 5G Gateway 2 Custom Web UI (Go)
 
 > [!note]
 > _Do something. If it doesn't work, do something else. No idea is too crazy._</br>

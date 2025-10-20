@@ -7,4 +7,4 @@ Priority: optional
 Depends: libc, libpthread, ca-certificates
 Source: https://github.com/__REPOSITORY__
 License: Apache-2.0
-Description: Web dashboard for Nokia routers written in Go.
+Description: Nokia FastMile 5G Gateway 2 custom Web UI written in Go.
