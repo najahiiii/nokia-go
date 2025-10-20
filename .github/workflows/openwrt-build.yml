@@ -42,7 +42,7 @@ jobs:
           fi
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
             -trimpath \
-            -ldflags="-s -w -X nokia_router/cmd/server.appVersion=${BASE_VERSION} -X nokia_router/cmd/server.gitCommit=${GIT_COMMIT} -X nokia_router/cmd/server.gitDirty=${GIT_DIRTY}" \
+            -ldflags="-s -w -X main.appVersion=${BASE_VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.gitDirty=${GIT_DIRTY}" \
             -o build/nokia ./cmd/server
 
       - name: Compress binary with UPX
@@ -77,7 +77,7 @@ jobs:
           echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_ENV"
           VERSION_LABEL="v${VERSION}"
           echo "VERSION_LABEL=$VERSION_LABEL" >> "$GITHUB_ENV"
-          echo "ARTIFACT_NAME=$PACKAGE_NAME-$VERSION_LABEL" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=${PACKAGE_NAME}-${VERSION_LABEL}" >> "$GITHUB_ENV"
 
           install -d -m 0755 package/root/usr/sbin
           install -d -m 0755 package/root/etc/init.d
