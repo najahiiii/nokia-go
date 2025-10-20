@@ -9,6 +9,7 @@ on:
 
 jobs:
   build:
+    name: ${{ matrix.owrt_arch }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -16,6 +17,19 @@ jobs:
       repository-projects: write
     env:
       PACKAGE_NAME: luci-app-nokia-go
+      REPO_NAME: ${{ github.event.repository.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64
+            goos: linux
+            goarch: amd64
+            owrt_arch: x86_64
+          - name: aarch64_generic
+            goos: linux
+            goarch: arm64
+            owrt_arch: aarch64_generic
 
     steps:
       - name: Checkout
@@ -26,21 +40,19 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build binary
+      - name: Build binary (${{ matrix.goos }}-${{ matrix.goarch }})
         run: |
+          set -e
           mkdir -p build
           RAW_VERSION=$(tr -d '\n' < VERSION)
           BASE_VERSION=${RAW_VERSION#v}
-          if [ -z "$BASE_VERSION" ]; then
-            BASE_VERSION="$RAW_VERSION"
-          fi
+          [ -z "$BASE_VERSION" ] && BASE_VERSION="$RAW_VERSION"
           GIT_COMMIT=$(git rev-parse --short HEAD)
-          if git diff --quiet --ignore-submodules HEAD; then
-            GIT_DIRTY=false
-          else
-            GIT_DIRTY=true
-          fi
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+          if git diff --quiet --ignore-submodules HEAD; then GIT_DIRTY=false; else GIT_DIRTY=true; fi
+          export CGO_ENABLED=0
+          export GOOS=${{ matrix.goos }}
+          export GOARCH=${{ matrix.goarch }}
+          go build \
             -trimpath \
             -ldflags="-s -w -X main.appVersion=${BASE_VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.gitDirty=${GIT_DIRTY}" \
             -o build/nokia ./cmd/server
@@ -55,12 +67,10 @@ jobs:
       - name: Prepare package
         id: prep
         run: |
+          set -e
           RAW_HASH="$(git describe --tags --dirty=-modified --always 2>/dev/null || echo ${GITHUB_SHA::7})"
           RAW_BASE_VERSION="$(tr -d '\n' < VERSION)"
-          BASE_VERSION="${RAW_BASE_VERSION#v}"
-          if [ -z "$BASE_VERSION" ]; then
-            BASE_VERSION="$RAW_BASE_VERSION"
-          fi
+          BASE_VERSION="${RAW_BASE_VERSION#v}"; [ -z "$BASE_VERSION" ] && BASE_VERSION="$RAW_BASE_VERSION"
           TRIMMED_HASH="${RAW_HASH#v}"
 
           if [ "$TRIMMED_HASH" = "$BASE_VERSION" ]; then
@@ -72,12 +82,16 @@ jobs:
           fi
 
           REPO="${{ github.repository }}"
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          ARCH="${{ matrix.owrt_arch }}"
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_ENV"
           VERSION_LABEL="v${VERSION}"
           echo "VERSION_LABEL=$VERSION_LABEL" >> "$GITHUB_ENV"
           echo "ARTIFACT_NAME=${PACKAGE_NAME}-${VERSION_LABEL}" >> "$GITHUB_ENV"
+          echo "REPO_NAME=$REPO_NAME" >> "$GITHUB_ENV"
+          echo "ARCH=$ARCH" >> "$GITHUB_ENV"
 
           install -d -m 0755 package/root/usr/sbin
           install -d -m 0755 package/root/etc/init.d
@@ -85,101 +99,145 @@ jobs:
 
           install -m 0755 build/nokia package/root/usr/sbin/nokia
           install -m 0755 services/nokia package/root/etc/init.d/nokia
+
           sed -e "s/__VERSION__/${VERSION}/" \
               -e "s#__REPOSITORY__#${REPO}#" openwrt/control > package/root/CONTROL/control
+          if grep -q '^Architecture:' package/root/CONTROL/control; then
+            sed -i -E "s/^Architecture:.*/Architecture: ${ARCH}/" package/root/CONTROL/control
+          else
+            echo "Architecture: ${ARCH}" >> package/root/CONTROL/control
+          fi
 
       - name: Build IPK package
         run: |
+          set -e
           DIST_DIR="$(pwd)/dist"
           TMP_BUILD="$(mktemp -d)"
           mkdir -p "$DIST_DIR"
           chmod +x .github/scripts/ipkg-build
           PKG_TMPDIR="$TMP_BUILD" .github/scripts/ipkg-build package/root "$DIST_DIR"
 
-      - name: Generate feed index
-        id: index
+      - name: Upload artifact (.ipk only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-${{ matrix.owrt_arch }}
+          path: dist/*.ipk
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish-all
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    env:
+      PACKAGE_NAME: luci-app-nokia-go
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ env.PACKAGE_NAME }}-v*-*
+          merge-multiple: true
+          path: .
+
+      - name: Generate feeds
         run: |
           set -e
-          ARCH="$(tar -xzOf dist/*.ipk ./control.tar.gz | tar -xzOf - ./control | awk -F': ' '/^Architecture:/ {print $2; exit}')"
-          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          ROOT_DIR="pkg/${REPO_NAME}"
+          mkdir -p "$ROOT_DIR"
 
-          REPO_DIR="repo/${ARCH}"
-          mkdir -p "$REPO_DIR"
-          cp -a dist/*.ipk "$REPO_DIR/"
+          shopt -s nullglob
+          mapfile -t IPKS < <(find . -maxdepth 2 -type f -name '*.ipk' -print)
+          if [ ${#IPKS[@]} -eq 0 ]; then
+            echo "ERROR: no .ipk files found after artifact download"
+            exit 1
+          fi
 
-          chmod +x .github/scripts/mkhash
-          chmod +x .github/scripts/ipkg-make-index
+          chmod +x .github/scripts/mkhash .github/scripts/ipkg-make-index
 
-          (cd "$REPO_DIR" && MKHASH="$GITHUB_WORKSPACE/.github/scripts/mkhash" "$GITHUB_WORKSPACE/.github/scripts/ipkg-make-index" . > Packages)
-          gzip -9k "$REPO_DIR/Packages"
+          declare -A touched
+          for ipk in "${IPKS[@]}"; do
+            ARCH="$(tar -xzOf "$ipk" ./control.tar.gz | tar -xzOf - ./control | awk -F': ' '/^Architecture:/ {print $2; exit}')"
+            [ -n "$ARCH" ] || ARCH=unknown
+            DEST="${ROOT_DIR}/${ARCH}"
+            mkdir -p "$DEST"
+            base="$(basename "$ipk")"
+            if [ -e "${DEST}/${base}" ]; then
+              base="${base%.ipk}-$(date +%s%3N).ipk"
+            fi
+            mv "$ipk" "${DEST}/${base}"
+            touched["$DEST"]=1
+          done
 
-          head -n 20 "$REPO_DIR/Packages" || true
-          zcat "$REPO_DIR/Packages.gz" | head -n 20 || true
+          for d in "${!touched[@]}"; do
+            (cd "$d" && MKHASH="$GITHUB_WORKSPACE/.github/scripts/mkhash" \
+              "$GITHUB_WORKSPACE/.github/scripts/ipkg-make-index" . > Packages)
+            gzip -9fk "$d/Packages"
+            echo "== Head: $d/Packages =="; head -n 20 "$d/Packages" || true
+          done
 
-      - name: Upload artifact (IPKs)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: repo/*/*.ipk
+          echo "== Final pkg tree =="
+          find pkg -maxdepth 3 -type f -print
 
-      - name: Upload artifact (repo index)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}-repo-${{ steps.index.outputs.arch }}
-          path: |
-            repo/*/Packages
-            repo/*/Packages.gz
+      - name: Prepare Pages
+        run: |
+          set -euo pipefail
+          SITE_DIR="site"
+          ROOT_TPL=".github/pages/index.html.tpl"
+          ARCH_TPL=".github/pages/arch-index.html.tpl"
+          [ -f "$ROOT_TPL" ] && [ -f "$ARCH_TPL" ] || { echo "Missing template files"; exit 1; }
+
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          ROOT_DIR="pkg/${REPO_NAME}"
+          [ -d "pkg" ] || { echo "ERROR: 'pkg' directory not found"; exit 1; }
+
+          mkdir -p "$SITE_DIR/$ROOT_DIR"
+          cp -a pkg "${SITE_DIR}/"
+          touch "$SITE_DIR/.nojekyll"
+
+          for d in $(find "${SITE_DIR}/${ROOT_DIR}" -mindepth 1 -maxdepth 1 -type d | sort); do
+            arch="$(basename "$d")"
+            FILE_LIST_FILE="$(mktemp)"
+            for f in $(ls -1 "$d"); do
+              printf '<li><a href="%s">%s</a></li>\n' "$f" "$f" >> "$FILE_LIST_FILE"
+            done
+            sed -e "s/{{ARCH}}/${arch}/g" "$ARCH_TPL" | \
+              awk -v fl="$FILE_LIST_FILE" '
+                /{{FILE_LIST}}/ { while ((getline line < fl) > 0) print line; next }
+                { print }
+              ' > "${d}/index.html"
+            rm -f "$FILE_LIST_FILE"
+          done
+
+          ARCH_LIST_FILE="$(mktemp)"
+          for d in $(find "${SITE_DIR}/${ROOT_DIR}" -mindepth 1 -maxdepth 1 -type d | sort); do
+            arch="$(basename "$d")"
+            printf '<li><a href="%s/">%s/</a></li>\n' "$arch" "$arch" >> "$ARCH_LIST_FILE"
+          done
+
+          awk -v lf="$ARCH_LIST_FILE" '
+            /{{ARCH_LIST}}/ { while ((getline line < lf) > 0) print line; next }
+            { print }
+          ' "$ROOT_TPL" > "${SITE_DIR}/${ROOT_DIR}/index.html"
+
+          rm -f "$ARCH_LIST_FILE"
 
       - name: Upload releases
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref_name }}
-          file: repo/**
+          file: pkg/**
           file_glob: true
           overwrite: true
           make_latest: true
-
-      - name: Prepare Pages content
-        run: |
-          set -euo pipefail
-          SITE_DIR="site"
-          ROOT_TPL=".github/pages/index.html.tpl"
-          ARCH_TPL=".github/pages/arch-index.html.tpl"
-
-          [ -f "$ROOT_TPL" ] && [ -f "$ARCH_TPL" ] || { echo "Missing template files"; exit 1; }
-
-          mkdir -p "$SITE_DIR"
-          cp -a repo "$SITE_DIR/"
-
-          touch "$SITE_DIR/.nojekyll"
-
-          ARCH_LIST_FILE="$(mktemp)"
-          for d in $(find repo -mindepth 1 -maxdepth 1 -type d | sort); do
-            arch="$(basename "$d")"
-            printf '<li><a href="repo/%s/">repo/%s/</a></li>\n' "$arch" "$arch" >> "$ARCH_LIST_FILE"
-
-            FILE_LIST_FILE="$(mktemp)"
-            for f in $(ls -1 "$d"); do
-              printf '<li><a href="%s">%s</a></li>\n' "$f" "$f" >> "$FILE_LIST_FILE"
-            done
-
-            mkdir -p "$SITE_DIR/repo/$arch"
-            sed -e "s/{{ARCH}}/${arch}/g" "$ARCH_TPL" | \
-              awk -v fl="$FILE_LIST_FILE" '
-                /{{FILE_LIST}}/ { while ((getline line < fl) > 0) print line; next }
-                { print }
-              ' > "$SITE_DIR/repo/$arch/index.html"
-
-            rm -f "$FILE_LIST_FILE"
-          done
-
-          awk -v lf="$ARCH_LIST_FILE" '
-            /{{ARCH_LIST}}/ { while ((getline line < lf) > 0) print line; next }
-            { print }
-          ' "$ROOT_TPL" > "$SITE_DIR/index.html"
-
-          rm -f "$ARCH_LIST_FILE"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -187,7 +245,7 @@ jobs:
           path: site
 
   deploy:
-    needs: build
+    needs: publish
     runs-on: ubuntu-latest
     permissions:
       pages: write
