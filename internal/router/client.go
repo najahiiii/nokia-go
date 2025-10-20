@@ -21,9 +21,10 @@ import (
 )
 
 type LoginSession struct {
-	SID   string
-	Token string
-	Raw   map[string]interface{}
+	SID    string
+	Token  string
+	PubKey string
+	Raw    map[string]interface{}
 }
 
 type Client struct {
@@ -55,9 +56,22 @@ func (c *Client) GetLogin(force bool) (*LoginSession, map[string]interface{}, er
 		return c.cachedLogin, nil, nil
 	}
 
-	loginResp, err := c.performLogin(context.Background())
+	pre, _ := c.GetPreloginStatus(context.Background())
+	preToken := getString(pre, "token")
+
+	nonceResp, err := c.getNonce(context.Background())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("get nonce: %w", err)
+	}
+
+	saltResp, err := c.getSalt(context.Background(), c.username, nonceResp)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get salt: %w", err)
+	}
+
+	loginResp, err := c.login(context.Background(), c.username, c.password, nonceResp, saltResp)
+	if err != nil {
+		return nil, nil, fmt.Errorf("login: %w", err)
 	}
 
 	sid := getString(loginResp, "sid")
@@ -66,31 +80,19 @@ func (c *Client) GetLogin(force bool) (*LoginSession, map[string]interface{}, er
 		return nil, loginResp, nil
 	}
 
+	tok := getString(loginResp, "token")
+	if tok == "" {
+		tok = preToken
+	}
+
 	session := &LoginSession{
-		SID:   sid,
-		Token: getString(loginResp, "token"),
-		Raw:   loginResp,
+		SID:    sid,
+		Token:  tok,
+		PubKey: getString(nonceResp, "pubkey"),
+		Raw:    loginResp,
 	}
 	c.cachedLogin = session
 	return session, nil, nil
-}
-
-func (c *Client) performLogin(ctx context.Context) (map[string]interface{}, error) {
-	nonceResp, err := c.getNonce(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get nonce: %w", err)
-	}
-
-	saltResp, err := c.getSalt(ctx, c.username, nonceResp)
-	if err != nil {
-		return nil, fmt.Errorf("get salt: %w", err)
-	}
-
-	loginResp, err := c.login(ctx, c.username, c.password, nonceResp, saltResp)
-	if err != nil {
-		return nil, fmt.Errorf("login: %w", err)
-	}
-	return loginResp, nil
 }
 
 func (c *Client) getNonce(ctx context.Context) (map[string]interface{}, error) {

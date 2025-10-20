@@ -36,3 +36,6 @@ config.json
 
 # Dist file
 dist
+
+# Test
+cmd/debug
