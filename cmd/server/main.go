@@ -44,7 +44,7 @@ func init() {
 		dirtySuffix = "-dirty"
 	}
 
-	appVersion = fmt.Sprintf("nokia-v%s-%s%s", baseVersion, hash, dirtySuffix)
+	appVersion = fmt.Sprintf("nokia-%s-%s%s", baseVersion, hash, dirtySuffix)
 }
 
 func main() {
