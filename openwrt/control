@@ -1,6 +1,6 @@
 Package: luci-app-nokia-go
 Version: __VERSION__
-Architecture: aarch64_generic
+Architecture: all
 Maintainer: Ahmad Thoriq Najahi
 Section: utils
 Priority: optional
