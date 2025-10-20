@@ -1,0 +1,48 @@
+#!/bin/sh /etc/rc.common
+# Copyright (c) 2024
+# Init script skeleton for OpenWrt 23.05.5 services
+
+START=99
+STOP=10
+
+USE_PROCD=1
+PROG="/usr/sbin/nokia"
+PROG_USER="root"
+CONFIG_HOME="${HOME:-/root}"
+CONFIG_PATH="${CONFIG_HOME}/.config/nokia/config.json"
+PROG_ARGS="run --config ${CONFIG_PATH}"
+PROG_PIDFILE="/var/run/nokia-router.pid"
+
+EXTRA_COMMANDS="status reload"
+EXTRA_HELP="    status  Get service status
+    reload  Reload configuration without full restart"
+
+start_service() {
+    procd_open_instance
+    procd_set_param command "$PROG" $PROG_ARGS
+    procd_set_param user "$PROG_USER"
+    procd_set_param respawn 5 30 10
+    procd_set_param pidfile "$PROG_PIDFILE"
+    procd_set_param stdout 1
+    procd_set_param stderr 1
+    procd_close_instance
+}
+
+stop_service() {
+    :
+}
+
+reload_service() {
+    if procd_running "$(basename "$PROG")"; then
+        kill -HUP "$(cat "$PROG_PIDFILE")" 2>/dev/null || true
+    fi
+}
+
+status() {
+    if procd_running "$(basename "$PROG")"; then
+        echo "$PROG is running (PID $(cat "$PROG_PIDFILE" 2>/dev/null))."
+    else
+        echo "$PROG is not running."
+        return 1
+    fi
+}

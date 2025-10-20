@@ -1,0 +1,16 @@
+{
+  "name": "nokia-router",
+  "version": "1.0.0",
+  "description": "Nokia FastMile 5G Gateway 2 custom Web UI",
+  "main": "index.js",
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i tailwind.css -o templates/assets/tailwind.css --minify"
+  },
+  "keywords": [],
+  "author": "Ahmad Thoriq Najahi",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "devDependencies": {
+    "tailwindcss": "^3.4.16"
+  }
+}

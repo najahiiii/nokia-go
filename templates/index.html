@@ -1,0 +1,860 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <link rel="icon" type="image/x-icon" href="assets/favicon.ico" />
+    <title>Nokia Fastmile 5G Gateway 2</title>
+
+    <link rel="stylesheet" href="assets/tailwind.css" />
+    <link rel="stylesheet" href="assets/fontawesome.min.css" />
+    <link rel="stylesheet" href="assets/app.css" />
+  </head>
+
+  <body class="bg-[#1E1E1E] text-[#e5e5e5] font-inter text-sm leading-relaxed">
+    <div class="max-w-[1440px] mx-auto p-5 sm:p-6 md:p-8">
+      <header class="flex justify-between items-center pb-6">
+        <h1 class="font-semibold text-base m-0">Nokia Fastmile 5G Gateway 2</h1>
+        <div>
+          <div class="relative inline-block">
+            <i
+              id="smsIcon"
+              class="fas fa-envelope text-lg cursor-pointer text-[#e5e5e5] hover:text-[#6495ed] origin-center mr-3"
+              aria-label="SMS"
+            ></i>
+            <span
+              id="smsBadge"
+              class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center"
+              >0</span
+            >
+          </div>
+          <i
+            class="fas fa-sync-alt text-lg cursor-pointer text-[#e5e5e5] hover:text-[#6495ed] origin-center hidden"
+            aria-label="Refresh"
+          ></i>
+        </div>
+      </header>
+      <section
+        aria-label="Dashboard panels"
+        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5"
+      >
+        <!-- Radio access -->
+        <article
+          aria-labelledby="radio-access-title"
+          class="bg-[#282828] rounded-xl p-6 shadow-none max-h-[450px] overflow-y-auto"
+        >
+          <h2 id="radio-access-title" class="font-semibold text-sm mb-3">
+            Radio access
+          </h2>
+          <div class="flex justify-between items-center mb-3">
+            <div>
+              <div class="font-semibold text-xs">5G Signal</div>
+              <div class="flex items-center gap-1 text-xs text-[#c8c8c8]">
+                <span class="w-2 h-2 rounded-full block bg-[#d32f2f]"></span>
+                Not connected
+              </div>
+            </div>
+            <div
+              class="text-[#6495ed] text-lg flex items-center"
+              title="5G signal bars"
+            >
+              <svg
+                width="24"
+                height="25"
+                viewBox="0 0 24 25"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect
+                  class="5g-bar"
+                  x="21"
+                  y="0.5"
+                  width="3"
+                  height="24"
+                  rx="1.5"
+                  opacity="0.4"
+                  fill="#666666"
+                ></rect>
+                <path
+                  class="5g-bar"
+                  d="M16 7C16 6.17157 16.6716 5.5 17.5 5.5C18.3284 5.5 19 6.17157 19 7V23C19 23.8284 18.3284 24.5 17.5 24.5C16.6716 24.5 16 23.8284 16 23V7Z"
+                  opacity="0.4"
+                  fill="#666666"
+                ></path>
+                <path
+                  class="5g-bar"
+                  d="M11 11.9998C11 11.1713 11.6716 10.4998 12.5 10.4998C13.3284 10.4998 14 11.1713 14 11.9998V22.9998C14 23.8282 13.3284 24.4998 12.5 24.4998C11.6716 24.4998 11 23.8282 11 22.9998V11.9998Z"
+                  opacity="0.4"
+                  fill="#666666"
+                ></path>
+                <path
+                  class="5g-bar"
+                  d="M6 18C6 17.1716 6.67157 16.5 7.5 16.5C8.32843 16.5 9 17.1716 9 18V23C9 23.8284 8.32843 24.5 7.5 24.5C6.67157 24.5 6 23.8284 6 23V18Z"
+                  opacity="0.4"
+                  fill="#666666"
+                ></path>
+                <path
+                  class="5g-bar"
+                  d="M1.3335 21.9998C1.3335 21.1713 2.00507 20.4998 2.8335 20.4998C3.66192 20.4998 4.3335 21.1713 4.3335 21.9998V22.9998C4.3335 23.8282 3.66192 24.4998 2.8335 24.4998C2.00507 24.4998 1.3335 23.8282 1.3335 22.9998V21.9998Z"
+                  opacity="0.4"
+                  fill="#666666"
+                ></path>
+              </svg>
+            </div>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <div class="flex justify-between items-center mb-3">
+            <div>
+              <span class="font-semibold text-xs">4G Signal</span>
+              <div
+                aria-live="polite"
+                class="flex items-center gap-1 text-xs text-[#c8c8c8]"
+              >
+                <span
+                  aria-hidden="true"
+                  class="w-2 h-2 rounded-full block bg-[#2e7d32]"
+                ></span>
+                Connected
+              </div>
+            </div>
+            <div
+              aria-hidden="true"
+              title="4G signal bars"
+              class="text-[#6495ed] text-lg flex items-center"
+            >
+              <svg
+                width="24"
+                height="25"
+                viewBox="0 0 24 25"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect
+                  class="signal-bar"
+                  x="21"
+                  y="0.5"
+                  width="3"
+                  height="24"
+                  rx="1.5"
+                  opacity="0.4"
+                  fill="#666666"
+                ></rect>
+                <path
+                  class="signal-bar"
+                  d="M16 7C16 6.17157 16.6716 5.5 17.5 5.5C18.3284 5.5 19 6.17157 19 7V23C19 23.8284 18.3284 24.5 17.5 24.5C16.6716 24.5 16 23.8284 16 23V7Z"
+                  opacity="0.4"
+                  fill="#666666"
+                ></path>
+                <path
+                  class="signal-bar"
+                  d="M11 11.9998C11 11.1713 11.6716 10.4998 12.5 10.4998C13.3284 10.4998 14 11.1713 14 11.9998V22.9998C14 23.8282 13.3284 24.4998 12.5 24.4998C11.6716 24.4998 11 23.8282 11 22.9998V11.9998Z"
+                  opacity="0.4"
+                  fill="#666666"
+                ></path>
+                <path
+                  class="signal-bar"
+                  d="M6 18C6 17.1716 6.67157 16.5 7.5 16.5C8.32843 16.5 9 17.1716 9 18V23C9 23.8284 8.32843 24.5 7.5 24.5C6.67157 24.5 6 23.8284 6 23V18Z"
+                  opacity="0.4"
+                  fill="#666666"
+                ></path>
+                <path
+                  class="signal-bar"
+                  d="M1.3335 21.9998C1.3335 21.1713 2.00507 20.4998 2.8335 20.4998C3.66192 20.4998 4.3335 21.1713 4.3335 21.9998V22.9998C4.3335 23.8282 3.66192 24.4998 2.8335 24.4998C2.00507 24.4998 1.3335 23.8282 1.3335 22.9998V21.9998Z"
+                  opacity="0.4"
+                  fill="#666666"
+                ></path>
+              </svg>
+            </div>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <div class="flex justify-between py-1">
+            <span class="font-semibold text-xs">RSSI</span>
+            <span class="font-semibold text-xs" id="radioRSSI"></span>
+          </div>
+          <div class="w-full h-4 bg-gray-600 rounded-full mb-3">
+            <div
+              id="rssiProgress"
+              class="h-4 rounded-full transition-all duration-300"
+              style="width: 0%"
+            ></div>
+          </div>
+          <div class="flex justify-between py-1">
+            <span class="font-semibold text-xs">RSRP</span>
+            <span class="font-semibold text-xs" id="radioRSRP"></span>
+          </div>
+          <div class="w-full h-4 bg-gray-600 rounded-full mb-3">
+            <div
+              id="rsrpProgress"
+              class="h-4 rounded-full transition-all duration-300"
+              style="width: 0%"
+            ></div>
+          </div>
+          <div class="flex justify-between py-1">
+            <span class="font-semibold text-xs">SNR</span>
+            <span class="font-semibold text-xs" id="radioSNR"></span>
+          </div>
+          <div class="w-full h-4 bg-gray-600 rounded-full mb-3">
+            <div
+              id="sinrProgress"
+              class="h-4 rounded-full transition-all duration-300"
+              style="width: 0%"
+            ></div>
+          </div>
+          <div class="flex justify-between py-1">
+            <span class="font-semibold text-xs">RSRQ</span>
+            <span class="font-semibold text-xs" id="radioRSRQ"></span>
+          </div>
+          <div class="w-full h-4 bg-gray-600 rounded-full mb-3">
+            <div
+              id="rsrqProgress"
+              class="h-4 rounded-full transition-all duration-300"
+              style="width: 0%"
+            ></div>
+          </div>
+        </article>
+
+        <!-- CA Combos -->
+        <article
+          aria-labelledby="settings-title"
+          class="bg-[#282828] rounded-xl p-6 shadow-none max-h-[450px] overflow-y-auto"
+        >
+          <h2 id="settings-title" class="font-semibold text-sm mb-3">
+            Carrier Aggregation
+          </h2>
+          <ul
+            class="flex flex-wrap text-sm font-medium text-center text-gray-500 mb-3"
+          >
+            <li class="me-2">
+              <a
+                href="#"
+                class="font-semibold inline-block px-4 py-3 text-white bg-blue-600 rounded-lg active"
+                aria-current="page"
+                >Main</a
+              >
+            </li>
+            <li class="me-2">
+              <a
+                href="#"
+                class="font-semibold text-[#c8c8c8] inline-block px-4 py-3 rounded-lg hover:text-gray-300 hover:bg-gray-700"
+                >Downlink</a
+              >
+            </li>
+            <li class="me-2">
+              <a
+                href="#"
+                class="font-semibold text-[#c8c8c8] inline-block px-4 py-3 rounded-lg hover:text-gray-300 hover:bg-gray-700"
+                >Uplink</a
+              >
+            </li>
+          </ul>
+
+          <div id="main">
+            <div class="flex justify-between py-1 mb-3">
+              <span class="font-semibold text-xs">Band</span>
+              <span class="font-semibold text-xs" id="mainBand"></span>
+            </div>
+            <hr class="border-t border-gray-600 mb-3" />
+            <div class="flex justify-between py-1 mb-3">
+              <span class="font-semibold text-xs">PCI</span>
+              <span class="font-semibold text-xs" id="mainPci"></span>
+            </div>
+            <hr class="border-t border-gray-600 mb-3" />
+            <div class="flex justify-between py-1 mb-3">
+              <span class="font-semibold text-xs">EARFCN</span>
+              <span class="font-semibold text-xs" id="mainEarfcn"></span>
+            </div>
+            <hr class="border-t border-gray-600 mb-3" />
+            <div class="flex justify-between py-1 mb-3">
+              <span class="font-semibold text-xs">ECI</span>
+              <span class="font-semibold text-xs" id="mainEci"></span>
+            </div>
+            <hr class="border-t border-gray-600 mb-3" />
+          </div>
+          <div id="downlink"></div>
+          <div id="uplink"></div>
+        </article>
+
+        <!-- Data Usage -->
+        <article
+          aria-labelledby="celluler-title"
+          class="bg-[#282828] rounded-xl p-6 shadow-none max-h-[450px] overflow-y-auto"
+        >
+          <h2 id="dataUsage" class="font-semibold text-sm mb-3">Data Usage</h2>
+          <div class="flex justify-between py-1">
+            <span class="font-semibold text-xs">Download</span>
+            <span class="font-semibold text-xs" id="cellTotalDl"></span>
+          </div>
+          <hr class="border-t border-gray-600" />
+          <div class="flex justify-between py-1">
+            <span class="font-semibold text-xs">Upload</span>
+            <span class="font-semibold text-xs" id="cellTotalUl"></span>
+          </div>
+          <hr class="border-t border-gray-600" />
+
+          <!-- Circular chart container -->
+          <div id="dailyUsageChart" class="my-4"></div>
+
+          <!-- Total usage display -->
+          <div class="text-center text-xs mt-2">
+            <span class="font-semibold">Total: </span>
+            <span id="totalUsage">0 GB</span>
+          </div>
+        </article>
+
+        <!-- Settings -->
+        <article
+          aria-labelledby="settings-title"
+          class="bg-[#282828] rounded-xl p-6 shadow-none max-h-[450px] overflow-y-auto"
+        >
+          <h2 id="settings-title" class="font-semibold text-sm mb-3">
+            Settings
+          </h2>
+          <div class="flex justify-between py-1 mb-3">
+            <span class="font-semibold text-xs">Router IP</span>
+            <span class="font-semibold text-xs" id="routerIp"></span>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <div class="flex justify-between py-1 mb-3">
+            <span class="font-semibold text-xs">WAN IP</span>
+            <span class="font-semibold text-xs" id="wanIp"></span>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <div class="flex justify-between py-1 mb-3" id="dnsServer">
+            <span class="font-semibold text-xs">DNS Server</span>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <div class="flex justify-between py-1 mb-3">
+            <span class="font-semibold text-xs">Uptime</span>
+            <span class="font-semibold text-xs" id="uptime"></span>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <div class="flex justify-between py-1 mb-3">
+            <span class="font-semibold text-xs">CPU Usage</span>
+            <span class="font-semibold text-xs" id="cpuUsage"></span>
+          </div>
+          <div class="w-full h-4 bg-gray-600 rounded-full mb-3">
+            <div
+              id="cpuUsageBar"
+              class="h-4 rounded-full transition-all duration-300"
+              style="width: 0%"
+            ></div>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <div class="flex justify-between py-1 mb-3">
+            <span class="font-semibold text-xs">Memory Usage</span>
+            <span class="font-semibold text-xs" id="memUsage"></span>
+          </div>
+          <div class="w-full h-4 bg-gray-600 rounded-full mb-3">
+            <div
+              id="memUsageBar"
+              class="h-4 rounded-full transition-all duration-300"
+              style="width: 0%"
+            ></div>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <div class="flex justify-between py-1 mb-3">
+            <span class="font-semibold text-xs">Valid until</span>
+            <span class="font-semibold text-xs" id="dataExpired"></span>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <!-- <label class="flex justify-between py-1 mb-3 cursor-pointer">
+					<span class="text-xs font-semibold">LED Light</span>
+					<input type="checkbox" value="" class="sr-only peer" checked>
+					<div class="relative w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+				</label> -->
+          <button
+            id="resetIp"
+            type="button"
+            class="w-full bg-[#0052cc] text-white font-bold text-sm py-2 rounded-md hover:bg-[#003d99] active:bg-[#003d99] mb-3"
+            aria-label="Reset IP"
+          >
+            Renew WAN IP
+          </button>
+          <button
+            id="rebootBtn"
+            type="button"
+            class="w-full bg-red-700 text-white font-bold text-sm py-2 rounded-md hover:bg-red-400 active:bg-red-400 mb-3"
+            aria-label="Reset IP"
+          >
+            Reboot
+          </button>
+        </article>
+
+        <!-- Service status -->
+        <article
+          aria-labelledby="service-status-title"
+          class="bg-[#282828] rounded-xl p-6 shadow-none"
+        >
+          <div
+            class="flex justify-between items-center font-semibold text-sm mb-3"
+          >
+            <h2 id="service-status-title" class="m-0">Service status</h2>
+            <span
+              role="link"
+              tabindex="0"
+              class="text-xs text-[#6495ed] cursor-pointer select-none hover:underline"
+              >View all</span
+            >
+          </div>
+          <div
+            role="listitem"
+            class="flex items-center gap-3 py-3 border-b border-gray-600 last:border-b-0"
+          >
+            <div
+              aria-hidden="true"
+              class="bg-[#333] rounded-full w-9 h-9 flex justify-center items-center text-gray-400 text-lg"
+            >
+              <i class="fas fa-globe"></i>
+            </div>
+            <div>
+              <div class="font-semibold text-sm text-[#e5e5e5]">Internet</div>
+              <div class="text-xs text-[#c8c8c8] flex items-center gap-1">
+                <span
+                  aria-hidden="true"
+                  class="w-2 h-2 rounded-full block bg-[#2e7d32]"
+                ></span>
+                Online
+              </div>
+            </div>
+            <div
+              aria-label="WAN IP"
+              class="font-bold text-xs text-[#e5e5e5] ml-auto"
+            >
+              WAN IP
+            </div>
+            <div aria-hidden="true" class="text-gray-400 text-sm">
+              <i class="fas fa-chevron-right"></i>
+            </div>
+          </div>
+          <div
+            role="listitem"
+            class="flex items-center gap-3 py-3 border-b border-gray-600 last:border-b-0"
+          >
+            <div
+              aria-hidden="true"
+              class="bg-[#333] rounded-full w-9 h-9 flex justify-center items-center text-gray-400 text-lg"
+            >
+              <i class="fas fa-tv"></i>
+            </div>
+            <div>
+              <div class="font-semibold text-sm text-[#e5e5e5]">IPTV</div>
+              <div class="text-xs text-[#c8c8c8] flex items-center gap-1">
+                <span
+                  aria-hidden="true"
+                  class="w-2 h-2 rounded-full block bg-[#d32f2f]"
+                ></span>
+                Offline
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- Connected devices -->
+        <article
+          aria-labelledby="connected-devices-title"
+          class="bg-[#282828] rounded-xl p-6 shadow-none"
+        >
+          <div
+            class="flex justify-between items-center font-semibold text-sm mb-3"
+          >
+            <h2 id="connected-devices-title" class="m-0">Connected devices</h2>
+            <span
+              role="link"
+              tabindex="0"
+              class="text-xs text-[#6495ed] cursor-pointer select-none hover:underline"
+              >View all</span
+            >
+          </div>
+          <div
+            aria-label="Connected devices count"
+            class="flex justify-center gap-20 mb-3"
+          >
+            <div aria-label="WiFi connected devices count" class="text-center">
+              <div
+                id="totalWiFiConnected"
+                aria-live="polite"
+                class="font-semibold text-4xl text-[#6495ed] mb-1"
+              >
+                0
+              </div>
+              <div aria-hidden="true" class="text-gray-400 text-lg mb-1">
+                <i class="fas fa-wifi"></i>
+              </div>
+              <div class="text-xs text-[#c8c8c8]">WiFi</div>
+            </div>
+            <div
+              aria-label="Ethernet connected devices count"
+              class="text-center"
+            >
+              <div
+                id="totalLANConnected"
+                aria-live="polite"
+                class="font-semibold text-4xl text-[#6495ed] mb-1"
+              >
+                0
+              </div>
+              <div aria-hidden="true" class="text-gray-400 text-lg mb-1">
+                <i class="fas fa-network-wired"></i>
+              </div>
+              <div class="text-xs text-[#c8c8c8]">Ethernet</div>
+            </div>
+          </div>
+          <hr class="border-t border-gray-600 mb-3" />
+          <div id="deviceList"></div>
+        </article>
+
+        <!-- WiFi networks -->
+        <article
+          aria-labelledby="wifi-networks-title"
+          class="bg-[#282828] rounded-xl p-6 shadow-none"
+        >
+          <div
+            class="flex justify-between items-center font-semibold text-sm mb-3"
+          >
+            <h2 id="wifi-networks-title" class="m-0">WiFi networks</h2>
+            <span
+              role="link"
+              tabindex="0"
+              class="text-xs text-[#6495ed] cursor-pointer select-none hover:underline"
+              >View all</span
+            >
+          </div>
+          <div id="wlanList"></div>
+        </article>
+
+        <!-- LAN interface status -->
+        <article
+          aria-labelledby="lan-status-title"
+          class="bg-[#282828] rounded-xl p-6 shadow-none"
+        >
+          <h2 id="lan-status-title" class="font-semibold text-sm mb-3">
+            LAN interface status
+          </h2>
+          <div
+            aria-label="LAN interface status list"
+            role="list"
+            class="rounded-xl overflow-hidden"
+          >
+            <div role="listitem" class="flex items-center gap-3 pb-3">
+              <div
+                aria-hidden="true"
+                class="bg-[#333] rounded-full w-9 h-9 flex justify-center items-center text-gray-400 text-lg"
+              >
+                <i class="fas fa-wifi"></i>
+              </div>
+              <div>
+                <div class="font-semibold text-sm text-[#e5e5e5]">
+                  WiFi 2.4GHz
+                </div>
+                <div class="text-xs text-[#c8c8c8] flex items-center gap-1">
+                  <span
+                    aria-hidden="true"
+                    class="w-2 h-2 rounded-full block bg-[#2e7d32]"
+                  ></span>
+                  Online
+                </div>
+              </div>
+              <div
+                aria-label="Auto channel"
+                class="ml-auto text-[11px] font-bold text-white bg-[#0052cc] rounded-full px-2 select-none"
+              >
+                Auto
+              </div>
+            </div>
+            <hr class="border-t border-gray-600 mb-3" />
+            <div role="listitem" class="flex items-center gap-3 pb-3">
+              <div
+                aria-hidden="true"
+                class="bg-[#333] rounded-full w-9 h-9 flex justify-center items-center text-gray-400 text-lg"
+              >
+                <i class="fas fa-wifi"></i>
+              </div>
+              <div>
+                <div class="font-semibold text-sm text-[#e5e5e5]">
+                  WiFi 5GHz
+                </div>
+                <div class="text-xs text-[#c8c8c8] flex items-center gap-1">
+                  <span
+                    aria-hidden="true"
+                    class="w-2 h-2 rounded-full block bg-[#2e7d32]"
+                  ></span>
+                  Online
+                </div>
+              </div>
+              <div
+                aria-label="Channel 40"
+                class="ml-auto text-[11px] font-bold text-white bg-[#0052cc] rounded-full px-2 select-none"
+              >
+                Ch 40
+              </div>
+            </div>
+            <hr class="border-t border-gray-600 mb-3" />
+            <div role="listitem" class="flex items-center gap-3 pb-3">
+              <div
+                aria-hidden="true"
+                class="bg-[#333] rounded-full w-9 h-9 flex justify-center items-center text-gray-400 text-lg"
+              >
+                <i class="fas fa-print"></i>
+              </div>
+              <div>
+                <div class="font-semibold text-sm text-[#e5e5e5]">
+                  Ethernet port 1
+                </div>
+                <div class="text-xs text-[#c8c8c8] flex items-center gap-1">
+                  <span
+                    aria-hidden="true"
+                    class="w-2 h-2 rounded-full block bg-[#2e7d32]"
+                  ></span>
+                  Up, 1000 Mbps Full Duplex
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </div>
+
+    <!-- WiFi Network Dialog -->
+    <div id="wifiDialog" class="dialog-overlay">
+      <div class="dialog-container">
+        <div class="mb-6">
+          <div class="flex justify-between items-start mb-1">
+            <h1 class="text-xl font-bold">Add WiFi network</h1>
+            <button
+              id="wifiCloseDialog"
+              class="text-gray-300 hover:bg-gray-700 p-2 rounded-full"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 34 34"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12.0285 13.4432C11.65 13.0647 11.6597 12.4412 12.0502 12.0507C12.4408 11.6602 13.0642 11.6504 13.4427 12.0289L21.9715 20.5577C22.35 20.9363 22.3403 21.5597 21.9497 21.9502C21.5592 22.3407 20.9358 22.3505 20.5573 21.972L12.0285 13.4432Z"
+                  fill="currentColor"
+                ></path>
+                <path
+                  d="M20.5573 12.0291C20.9358 11.6506 21.5593 11.6603 21.9498 12.0509C22.3403 12.4414 22.35 13.0648 21.9715 13.4433L13.4427 21.9721C13.0642 22.3506 12.4408 22.3409 12.0503 21.9504C11.6598 21.5598 11.65 20.9364 12.0285 20.5579L20.5573 12.0291Z"
+                  fill="currentColor"
+                ></path>
+              </svg>
+            </button>
+          </div>
+          <p class="text-gray-400 text-sm">
+            Please select a preferred network type from the options below.
+          </p>
+        </div>
+
+        <div class="mt-5">
+          <form>
+            <div
+              class="radiocard selected"
+              onclick="selectRadio(this, 'multi')"
+            >
+              <label for="multi" class="flex-1 cursor-pointer">
+                <p class="font-semibold">Multi Band</p>
+                <p class="text-gray-400 text-sm mt-1">
+                  Recommended — Band steering will intelligently move your
+                  devices from the 2.4GHz and 5GHz network based on usage,
+                  speed, coverage and distance.
+                </p>
+              </label>
+              <div class="radio_button_container">
+                <input
+                  type="radio"
+                  name="networkType"
+                  value="multi"
+                  id="multi"
+                  checked
+                />
+              </div>
+            </div>
+
+            <div class="radiocard" onclick="selectRadio(this, '2.4')">
+              <label for="2.4" class="flex-1 cursor-pointer">
+                <p class="font-semibold">2.4 GHz</p>
+              </label>
+              <div class="radio_button_container">
+                <input type="radio" name="networkType" value="2.4" id="2.4" />
+              </div>
+            </div>
+
+            <div class="radiocard" onclick="selectRadio(this, '5')">
+              <label for="5" class="flex-1 cursor-pointer">
+                <p class="font-semibold">5 GHz</p>
+              </label>
+              <div class="radio_button_container">
+                <input type="radio" name="networkType" value="5" id="5" />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              class="w-full mt-4 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition"
+            >
+              Next
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div id="infoDialog" class="dialog-overlay">
+      <div class="dialog-container">
+        <div class="mb-6">
+          <div class="flex justify-between items-start mb-1">
+            <h1 class="text-xl font-bold" id="dialogTitle"></h1>
+            <button
+              id="closeDialog"
+              class="text-gray-300 hover:bg-gray-700 p-2 rounded-full"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 34 34"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12.0285 13.4432C11.65 13.0647 11.6597 12.4412 12.0502 12.0507C12.4408 11.6602 13.0642 11.6504 13.4427 12.0289L21.9715 20.5577C22.35 20.9363 22.3403 21.5597 21.9497 21.9502C21.5592 22.3407 20.9358 22.3505 20.5573 21.972L12.0285 13.4432Z"
+                  fill="currentColor"
+                ></path>
+                <path
+                  d="M20.5573 12.0291C20.9358 11.6506 21.5593 11.6603 21.9498 12.0509C22.3403 12.4414 22.35 13.0648 21.9715 13.4433L13.4427 21.9721C13.0642 22.3506 12.4408 22.3409 12.0503 21.9504C11.6598 21.5598 11.65 20.9364 12.0285 20.5579L20.5573 12.0291Z"
+                  fill="currentColor"
+                ></path>
+              </svg>
+            </button>
+          </div>
+          <p class="text-gray-400 text-sm" id="dialogInfo"></p>
+        </div>
+
+        <div class="mt-5">
+          <form>
+            <div id="dialogStatus"></div>
+            <button
+              id="closeDialogBtn"
+              type="button"
+              class="hidden w-full mt-4 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition"
+            >
+              Close
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div id="smsDialog" class="dialog-overlay">
+      <div class="dialog-container">
+        <div class="mb-6">
+          <div class="flex justify-between items-start mb-1">
+            <h1 class="text-xl font-bold">SMS Messages</h1>
+            <button
+              id="smsCloseDialog"
+              class="text-gray-300 hover:bg-gray-700 p-2 rounded-full"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 34 34"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12.0285 13.4432C11.65 13.0647 11.6597 12.4412 12.0502 12.0507C12.4408 11.6602 13.0642 11.6504 13.4427 12.0289L21.9715 20.5577C22.35 20.9363 22.3403 21.5597 21.9497 21.9502C21.5592 22.3407 20.9358 22.3505 20.5573 21.972L12.0285 13.4432Z"
+                  fill="currentColor"
+                ></path>
+                <path
+                  d="M20.5573 12.0291C20.9358 11.6506 21.5593 11.6603 21.9498 12.0509C22.3403 12.4414 22.35 13.0648 21.9715 13.4433L13.4427 21.9721C13.0642 22.3506 12.4408 22.3409 12.0503 21.9504C11.6598 21.5598 11.65 20.9364 12.0285 20.5579L20.5573 12.0291Z"
+                  fill="currentColor"
+                ></path>
+              </svg>
+            </button>
+          </div>
+          <p class="text-gray-400 text-sm">
+            You have <span id="smsTotalCount">0</span> messages (<span
+              id="smsUnreadCount"
+              >0</span
+            >
+            unread)
+          </p>
+        </div>
+
+        <div class="mt-5 max-h-96 overflow-y-auto">
+          <div id="smsList" class="space-y-3">
+            <!-- SMS items will be inserted here -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Expiration Date Picker Dialog -->
+    <div id="expirationDialog" class="dialog-overlay">
+      <div class="dialog-container">
+        <div class="mb-6">
+          <div class="flex justify-between items-start mb-1">
+            <h1 class="text-xl font-bold">Set Data Expiration</h1>
+            <button
+              id="closeExpirationDialog"
+              class="text-gray-300 hover:bg-gray-700 p-2 rounded-full"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 34 34"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12.0285 13.4432C11.65 13.0647 11.6597 12.4412 12.0502 12.0507C12.4408 11.6602 13.0642 11.6504 13.4427 12.0289L21.9715 20.5577C22.35 20.9363 22.3403 21.5597 21.9497 21.9502C21.5592 22.3407 20.9358 22.3505 20.5573 21.972L12.0285 13.4432Z"
+                  fill="currentColor"
+                ></path>
+                <path
+                  d="M20.5573 12.0291C20.9358 11.6506 21.5593 11.6603 21.9498 12.0509C22.3403 12.4414 22.35 13.0648 21.9715 13.4433L13.4427 21.9721C13.0642 22.3506 12.4408 22.3409 12.0503 21.9504C11.6598 21.5598 11.65 20.9364 12.0285 20.5579L20.5573 12.0291Z"
+                  fill="currentColor"
+                ></path>
+              </svg>
+            </button>
+          </div>
+          <p class="text-gray-400 text-sm">
+            Select expiration date or extend by 30 days
+          </p>
+        </div>
+
+        <div class="mt-5">
+          <div class="mb-4">
+            <label
+              for="expirationDate"
+              class="block text-sm font-medium text-gray-300 mb-2"
+              >Expiration Date:</label
+            >
+            <input
+              type="date"
+              id="expirationDate"
+              class="w-full bg-[#333] border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div class="flex gap-3">
+            <button
+              id="extend30Days"
+              class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-lg transition"
+            >
+              Extend 30 Days
+            </button>
+            <button
+              id="saveExpirationDate"
+              class="flex-1 bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition"
+            >
+              Save Date
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+
+  <script src="script/nokia.js"></script>
+  <script src="script/tabs.js"></script>
+</html>
