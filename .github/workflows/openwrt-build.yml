@@ -96,17 +96,41 @@ jobs:
           chmod +x .github/scripts/ipkg-build
           PKG_TMPDIR="$TMP_BUILD" .github/scripts/ipkg-build package/root "$DIST_DIR"
 
-      - name: Upload artifact
+      - name: Generate feed index
+        id: index
+        run: |
+          set -e
+          ARCH="$(tar -xzOf dist/*.ipk ./control.tar.gz | tar -xzOf - ./control | awk -F': ' '/^Architecture:/ {print $2; exit}')"
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+
+          REPO_DIR="repo/${ARCH}"
+          mkdir -p "$REPO_DIR"
+          cp -a dist/*.ipk "$REPO_DIR/"
+
+          chmod +x .github/scripts/mkhash
+          chmod +x .github/scripts/ipkg-make-index
+
+          (cd "$REPO_DIR" && MKHASH="$GITHUB_WORKSPACE/.github/scripts/mkhash" "$GITHUB_WORKSPACE/.github/scripts/ipkg-make-index" . > Packages)
+          gzip -9f "$REPO_DIR/Packages"
+
+      - name: Upload artifact (IPKs)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: dist/*.ipk
+          path: repo/*/*.ipk
+
+      - name: Upload artifact (repo index)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}-repo-${{ steps.index.outputs.arch }}
+          path: repo/*/*.gz
 
       - name: Upload releases
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ github.ref_name }}
-          file: dist/*.ipk
+          file: repo/**
           file_glob: true
           overwrite: true
+          make_latest: true
