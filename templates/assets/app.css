@@ -19,7 +19,7 @@
 .dialog-container {
   background-color: #2d2d2d;
   border-radius: 0.75rem;
-  padding: 1.5rem;
+  padding: 1.75rem;
   width: 400px;
   transform: translateY(20px);
   transition: transform 0.3s ease;

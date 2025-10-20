@@ -104,7 +104,7 @@ func runCommand(args []string) error {
 	}
 
 	client := router.NewClient(cfg)
-	serverHandler := server.New(client, store).Handler()
+	serverHandler := server.New(client, store, *cfgPath, cfg).Handler()
 
 	addr := net.JoinHostPort(cfg.ListenHost, cfg.ListenPort)
 	logger.Printf("Starting server on %s", addr)

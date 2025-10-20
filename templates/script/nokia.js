@@ -14,6 +14,35 @@ const API = {
         return await response.json();
     },
 
+    async sendJSON(endpoint, payload, method = "POST") {
+        const response = await fetch(`${this.baseUrl}/${endpoint}`, {
+            method,
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            let message = `HTTP error! status: ${response.status}`;
+            try {
+                const errorPayload = await response.json();
+                if (errorPayload?.error) {
+                    message = errorPayload.error;
+                }
+            } catch (_) {
+                // ignore JSON parsing errors
+            }
+            throw new Error(message);
+        }
+
+        try {
+            return await response.json();
+        } catch (_) {
+            return {};
+        }
+    },
+
     getFormattedDailyUsage() {
         return this.fetchData('daily_usage');
     },
@@ -81,6 +110,14 @@ const API = {
     setDataExpired(data_expired) {
         return this.fetchData('set_data_expired', `data_expired=${encodeURIComponent(data_expired)}`);
     },
+
+    getConfig() {
+        return this.fetchData('config');
+    },
+
+    updateConfig(config) {
+        return this.sendJSON('config', config);
+    }
 };
 
 // DOM Utilities
@@ -650,6 +687,8 @@ const DOM = {
 // Main Application
 const App = {
     async init() {
+        this.initConfigDialog();
+
         try {
             // Initial data load
             await this.loadData();
@@ -671,13 +710,13 @@ const App = {
 
             // Initialize expiration manager after other elements are loaded
             ExpirationManager.init();
-
-            // Set up polling
-            this.startPolling(1000);
         } catch (error) {
             console.error("Initialization error:", error);
             // Consider adding user-facing error notification here
         }
+
+        // Set up polling regardless of initial load outcome
+        this.startPolling(1000);
     },
 
     async loadData() {
@@ -704,6 +743,134 @@ const App = {
         document.getElementById('cellTotalDl').textContent = dailyUsage?.last_7_days?.[0]?.download?.formatted || '0 B';
         document.getElementById('cellTotalUl').textContent = dailyUsage?.last_7_days?.[0]?.upload?.formatted || '0 B';
         document.getElementById('totalUsage').textContent = dailyUsage?.total_usage?.combined || '0 B';
+    },
+
+    initConfigDialog() {
+        this.configDialog = document.getElementById('configDialog');
+        if (!this.configDialog) return;
+
+        this.configForm = document.getElementById('configForm');
+        this.configFeedback = document.getElementById('configFeedback');
+        this.configSaveBtn = document.getElementById('configSaveBtn');
+        this.configCancelBtn = document.getElementById('configCancelBtn');
+        this.configInputs = {
+            routerHost: document.getElementById('configRouterHost'),
+            routerUser: document.getElementById('configRouterUser'),
+            routerPassword: document.getElementById('configRouterPassword'),
+            listenHost: document.getElementById('configListenHost'),
+            listenPort: document.getElementById('configListenPort')
+        };
+
+        const openBtn = document.getElementById('configIcon');
+        const closeBtn = document.getElementById('configCloseDialog');
+
+        openBtn?.addEventListener('click', () => this.openConfigDialog());
+        closeBtn?.addEventListener('click', () => this.closeConfigDialog());
+        this.configCancelBtn?.addEventListener('click', () => this.closeConfigDialog());
+        this.configForm?.addEventListener('submit', (event) => this.submitConfigForm(event));
+    },
+
+    async openConfigDialog() {
+        if (!this.configDialog) return;
+
+        this.configForm?.reset();
+        this.setConfigFeedback('');
+        this.toggleConfigLoading(true, 'Loading...');
+
+        this.configDialog.classList.add('active');
+
+        try {
+            const cfg = await API.getConfig();
+            this.populateConfigForm(cfg);
+            this.setConfigFeedback('');
+        } catch (error) {
+            console.error('Failed to load configuration:', error);
+            this.setConfigFeedback(error.message || 'Failed to load configuration.', 'error');
+        } finally {
+            this.toggleConfigLoading(false);
+        }
+    },
+
+    closeConfigDialog() {
+        if (!this.configDialog) return;
+        this.configDialog.classList.remove('active');
+        this.toggleConfigLoading(false);
+        this.setConfigFeedback('');
+    },
+
+    async submitConfigForm(event) {
+        event.preventDefault();
+        if (!this.configForm) return;
+
+        const payload = {
+            router_host: this.configInputs.routerHost?.value?.trim() || '',
+            router_user: this.configInputs.routerUser?.value?.trim() || '',
+            router_password: this.configInputs.routerPassword?.value || '',
+            listen_host: this.configInputs.listenHost?.value?.trim() || '',
+            listen_port: this.configInputs.listenPort?.value?.trim() || ''
+        };
+
+        this.toggleConfigLoading(true);
+        this.setConfigFeedback('Saving configuration...', 'info');
+
+        try {
+            const response = await API.updateConfig(payload);
+            if (response?.config) {
+                this.populateConfigForm(response.config);
+            }
+            this.setConfigFeedback(response?.message || 'Configuration updated.', 'success');
+            setTimeout(() => this.closeConfigDialog(), 1000);
+        } catch (error) {
+            console.error('Failed to update configuration:', error);
+            this.setConfigFeedback(error.message || 'Failed to update configuration.', 'error');
+        } finally {
+            this.toggleConfigLoading(false);
+        }
+    },
+
+    populateConfigForm(cfg) {
+        if (!cfg) return;
+        if (this.configInputs.routerHost) this.configInputs.routerHost.value = cfg.router_host ?? '';
+        if (this.configInputs.routerUser) this.configInputs.routerUser.value = cfg.router_user ?? '';
+        if (this.configInputs.routerPassword) this.configInputs.routerPassword.value = cfg.router_password ?? '';
+        if (this.configInputs.listenHost) this.configInputs.listenHost.value = cfg.listen_host ?? '';
+        if (this.configInputs.listenPort) this.configInputs.listenPort.value = cfg.listen_port ?? '';
+    },
+
+    setConfigFeedback(message, tone = 'info') {
+        if (!this.configFeedback) return;
+
+        const baseClasses = ['text-sm', 'min-h-[1.5rem]'];
+        let toneClass = 'text-gray-300';
+
+        if (!message) {
+            this.configFeedback.textContent = '';
+            this.configFeedback.className = baseClasses.join(' ');
+            return;
+        }
+
+        if (tone === 'error') {
+            toneClass = 'text-red-400';
+        } else if (tone === 'success') {
+            toneClass = 'text-green-400';
+        } else {
+            toneClass = 'text-gray-300';
+        }
+
+        this.configFeedback.textContent = message;
+        this.configFeedback.className = `${baseClasses.join(' ')} ${toneClass}`;
+    },
+
+    toggleConfigLoading(isLoading, pendingLabel = 'Saving...') {
+        if (this.configSaveBtn) {
+            this.configSaveBtn.disabled = isLoading;
+            this.configSaveBtn.textContent = isLoading ? pendingLabel : 'Save Changes';
+        }
+        if (this.configCancelBtn) {
+            this.configCancelBtn.disabled = isLoading;
+            this.configCancelBtn.classList.toggle('opacity-60', isLoading);
+            this.configCancelBtn.classList.toggle('cursor-not-allowed', isLoading);
+        }
     },
 
     startPolling(interval) {

@@ -14,11 +14,11 @@
     <div class="max-w-[1440px] mx-auto p-5 sm:p-6 md:p-8">
       <header class="flex justify-between items-center pb-6">
         <h1 class="font-semibold text-base m-0">Nokia Fastmile 5G Gateway 2</h1>
-        <div>
+        <div class="flex items-center gap-3">
           <div class="relative inline-block">
             <i
               id="smsIcon"
-              class="fas fa-envelope text-lg cursor-pointer text-[#e5e5e5] hover:text-[#6495ed] origin-center mr-3"
+              class="fas fa-envelope text-lg cursor-pointer text-[#e5e5e5] hover:text-[#6495ed] origin-center"
               aria-label="SMS"
             ></i>
             <span
@@ -27,6 +27,11 @@
               >0</span
             >
           </div>
+          <i
+            id="configIcon"
+            class="fas fa-cog text-lg cursor-pointer text-[#e5e5e5] hover:text-[#6495ed] origin-center"
+            aria-label="Configuration"
+          ></i>
           <i
             class="fas fa-sync-alt text-lg cursor-pointer text-[#e5e5e5] hover:text-[#6495ed] origin-center hidden"
             aria-label="Refresh"
@@ -697,6 +702,138 @@
             </button>
           </form>
         </div>
+      </div>
+    </div>
+
+    <div id="configDialog" class="dialog-overlay">
+      <div class="dialog-container w-full max-w-lg">
+        <div class="flex justify-between items-start mb-4">
+          <div>
+            <h1 class="text-xl font-bold">Edit Configuration</h1>
+            <p class="text-gray-400 text-sm">
+              Update router credentials and listener details.
+            </p>
+          </div>
+          <button
+            id="configCloseDialog"
+            class="text-gray-300 hover:bg-gray-700 p-2 rounded-full"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 34 34"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M12.0285 13.4432C11.65 13.0647 11.6597 12.4412 12.0502 12.0507C12.4408 11.6602 13.0642 11.6504 13.4427 12.0289L21.9715 20.5577C22.35 20.9363 22.3403 21.5597 21.9497 21.9502C21.5592 22.3407 20.9358 22.3505 20.5573 21.972L12.0285 13.4432Z"
+                fill="currentColor"
+              ></path>
+              <path
+                d="M20.5573 12.0291C20.9358 11.6506 21.5593 11.6603 21.9498 12.0509C22.3403 12.4414 22.35 13.0648 21.9715 13.4433L13.4427 21.9721C13.0642 22.3506 12.4408 22.3409 12.0503 21.9504C11.6598 21.5598 11.65 20.9364 12.0285 20.5579L20.5573 12.0291Z"
+                fill="currentColor"
+              ></path>
+            </svg>
+          </button>
+        </div>
+
+        <form id="configForm" class="space-y-5">
+          <div class="space-y-2">
+            <label
+              for="configRouterHost"
+              class="block text-[0.65rem] font-semibold text-gray-300 uppercase tracking-wider"
+              >Router Host</label
+            >
+            <input
+              id="configRouterHost"
+              type="text"
+              autocomplete="off"
+              class="w-full rounded-md border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-2 text-sm text-[#f1f1f1] placeholder:text-[#6f6f6f] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#3b82f6]"
+              placeholder="192.168.0.1"
+            />
+          </div>
+
+          <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div class="space-y-2">
+              <label
+                for="configRouterUser"
+                class="block text-[0.65rem] font-semibold text-gray-300 uppercase tracking-wider"
+                >Router User</label
+              >
+              <input
+                id="configRouterUser"
+                type="text"
+                autocomplete="off"
+                class="w-full rounded-md border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-2 text-sm text-[#f1f1f1] placeholder:text-[#6f6f6f] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#3b82f6]"
+                placeholder="admin"
+              />
+            </div>
+            <div class="space-y-2">
+              <label
+                for="configRouterPassword"
+                class="block text-[0.65rem] font-semibold text-gray-300 uppercase tracking-wider"
+                >Router Password</label
+              >
+              <input
+                id="configRouterPassword"
+                type="password"
+                class="w-full rounded-md border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-2 text-sm text-[#f1f1f1] placeholder:text-[#6f6f6f] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#3b82f6]"
+                placeholder="••••••••"
+              />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div class="space-y-2">
+              <label
+                for="configListenHost"
+                class="block text-[0.65rem] font-semibold text-gray-300 uppercase tracking-wider"
+                >Listen Host</label
+              >
+              <input
+                id="configListenHost"
+                type="text"
+                autocomplete="off"
+                class="w-full rounded-md border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-2 text-sm text-[#f1f1f1] placeholder:text-[#6f6f6f] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#3b82f6]"
+                placeholder="0.0.0.0"
+              />
+            </div>
+            <div class="space-y-2">
+              <label
+                for="configListenPort"
+                class="block text-[0.65rem] font-semibold text-gray-300 uppercase tracking-wider"
+                >Listen Port</label
+              >
+              <input
+                id="configListenPort"
+                type="text"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                class="w-full rounded-md border border-[#3a3a3a] bg-[#1f1f1f] px-3 py-2 text-sm text-[#f1f1f1] placeholder:text-[#6f6f6f] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#3b82f6]"
+                placeholder="5000"
+              />
+            </div>
+          </div>
+
+          <div id="configFeedback" class="text-sm min-h-[1.5rem] text-gray-300"></div>
+
+          <div class="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              id="configCancelBtn"
+              class="px-4 py-2 text-sm font-medium rounded-md border border-[#3a3a3a] text-gray-200 hover:bg-[#3a3a3a]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              id="configSaveBtn"
+              class="px-4 py-2 text-sm font-semibold rounded-md bg-[#2563eb] text-white hover:bg-[#1d4ed8] disabled:opacity-70 disabled:pointer-events-none"
+            >
+              Save Changes
+            </button>
+          </div>
+        </form>
       </div>
     </div>
 

@@ -12,24 +12,58 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
+	"nokia_router/internal/config"
 	"nokia_router/internal/router"
 	"nokia_router/internal/settings"
 	webtpl "nokia_router/templates"
 )
 
 type Server struct {
-	client *router.Client
+	clientMu sync.RWMutex
+	client   *router.Client
+
+	cfgMu   sync.RWMutex
+	cfgPath string
+	cfg     config.Config
+
 	store  *settings.Store
 	logger *log.Logger
 }
 
-func New(client *router.Client, store *settings.Store) *Server {
+func New(client *router.Client, store *settings.Store, cfgPath string, cfg config.Config) *Server {
 	return &Server{
-		client: client,
-		store:  store,
-		logger: log.New(os.Stdout, "[server] ", log.LstdFlags),
+		client:  client,
+		cfgPath: cfgPath,
+		cfg:     cfg,
+		store:   store,
+		logger:  log.New(os.Stdout, "[server] ", log.LstdFlags),
 	}
+}
+
+func (s *Server) getClient() *router.Client {
+	s.clientMu.RLock()
+	defer s.clientMu.RUnlock()
+	return s.client
+}
+
+func (s *Server) setClient(client *router.Client) {
+	s.clientMu.Lock()
+	defer s.clientMu.Unlock()
+	s.client = client
+}
+
+func (s *Server) getConfig() config.Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg
+}
+
+func (s *Server) setConfig(cfg config.Config) {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	s.cfg = cfg
 }
 
 func (s *Server) Handler() http.Handler {
@@ -56,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/sms", s.handleSmsList)
 	mux.HandleFunc("/api/set_sms_state", s.handleSetSmsState)
 	mux.HandleFunc("/api/cell_identification", s.handleCellIdentification)
+	mux.HandleFunc("/api/config", s.handleConfig)
 
 	return corsMiddleware(mux)
 }
@@ -180,7 +215,8 @@ func (s *Server) handlePreloginStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := s.client.GetPreloginStatus(r.Context())
+	client := s.getClient()
+	data, err := client.GetPreloginStatus(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -190,31 +226,36 @@ func (s *Server) handlePreloginStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.GetOverviewData(ctx, session)
+		client := s.getClient()
+		return client.GetOverviewData(ctx, session)
 	})
 }
 
 func (s *Server) handleWanStatus(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.GetWanStatus(ctx, session)
+		client := s.getClient()
+		return client.GetWanStatus(ctx, session)
 	})
 }
 
 func (s *Server) handleDeviceStatus(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.GetDeviceStatus(ctx, session)
+		client := s.getClient()
+		return client.GetDeviceStatus(ctx, session)
 	})
 }
 
 func (s *Server) handleServiceData(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.PostServiceData(ctx, session)
+		client := s.getClient()
+		return client.PostServiceData(ctx, session)
 	})
 }
 
 func (s *Server) handleStatusWeb(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		data, err := s.client.GetStatusWeb(ctx, session)
+		client := s.getClient()
+		data, err := client.GetStatusWeb(ctx, session)
 		if err != nil {
 			return nil, err
 		}
@@ -233,37 +274,43 @@ func (s *Server) handleSetAPN(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.PostSetAPN(ctx, session, apn)
+		client := s.getClient()
+		return client.PostSetAPN(ctx, session, apn)
 	})
 }
 
 func (s *Server) handleWlan24(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.GetWlan24Configs(ctx, session)
+		client := s.getClient()
+		return client.GetWlan24Configs(ctx, session)
 	})
 }
 
 func (s *Server) handleWlan5(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.GetWlan5Configs(ctx, session)
+		client := s.getClient()
+		return client.GetWlan5Configs(ctx, session)
 	})
 }
 
 func (s *Server) handleReboot(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.Reboot(ctx, session)
+		client := s.getClient()
+		return client.Reboot(ctx, session)
 	})
 }
 
 func (s *Server) handleLanStatus(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.GetLanStatusWeb(ctx, session)
+		client := s.getClient()
+		return client.GetLanStatusWeb(ctx, session)
 	})
 }
 
 func (s *Server) handleSmsList(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.GetSmsList(ctx, session)
+		client := s.getClient()
+		return client.GetSmsList(ctx, session)
 	})
 }
 
@@ -280,13 +327,15 @@ func (s *Server) handleSetSmsState(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.SetSmsState(ctx, session, smsID, smsUnread)
+		client := s.getClient()
+		return client.SetSmsState(ctx, session, smsID, smsUnread)
 	})
 }
 
 func (s *Server) handleCellIdentification(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
-		return s.client.PostCellularIdentification(ctx, session)
+		client := s.getClient()
+		return client.PostCellularIdentification(ctx, session)
 	})
 }
 
@@ -296,7 +345,8 @@ func (s *Server) withSession(w http.ResponseWriter, r *http.Request, fn func(con
 		return
 	}
 
-	session, loginResp, err := s.client.GetLogin(false)
+	client := s.getClient()
+	session, loginResp, err := client.GetLogin(false)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -308,7 +358,8 @@ func (s *Server) withSession(w http.ResponseWriter, r *http.Request, fn func(con
 
 	result, err := fn(r.Context(), session)
 	if err != nil {
-		session, loginResp, err = s.client.GetLogin(true)
+		client = s.getClient()
+		session, loginResp, err = client.GetLogin(true)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -324,6 +375,97 @@ func (s *Server) withSession(w http.ResponseWriter, r *http.Request, fn func(con
 		}
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, s.getConfig())
+	case http.MethodPost:
+		defer r.Body.Close()
+
+		var payload config.Config
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+			return
+		}
+
+		updated := normalizeConfig(payload)
+		if err := validateConfig(updated); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		if err := config.Save(s.cfgPath, updated); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("save config: %v", err)})
+			return
+		}
+
+		s.setConfig(updated)
+		s.setClient(router.NewClient(updated))
+		s.logger.Printf("Configuration updated at %s", s.cfgPath)
+
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"message": "configuration updated",
+			"config":  updated,
+		})
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func normalizeConfig(cfg config.Config) config.Config {
+	defaults := config.Defaults()
+
+	normalized := config.Config{
+		RouterHost:     strings.TrimSpace(cfg.RouterHost),
+		RouterUser:     strings.TrimSpace(cfg.RouterUser),
+		RouterPassword: strings.TrimSpace(cfg.RouterPassword),
+		ListenHost:     strings.TrimSpace(cfg.ListenHost),
+		ListenPort:     strings.TrimSpace(cfg.ListenPort),
+	}
+
+	if normalized.RouterHost == "" {
+		normalized.RouterHost = defaults.RouterHost
+	}
+	if normalized.RouterUser == "" {
+		normalized.RouterUser = defaults.RouterUser
+	}
+	if normalized.RouterPassword == "" {
+		normalized.RouterPassword = defaults.RouterPassword
+	}
+	if normalized.ListenHost == "" {
+		normalized.ListenHost = defaults.ListenHost
+	}
+	if normalized.ListenPort == "" {
+		normalized.ListenPort = defaults.ListenPort
+	}
+
+	return normalized
+}
+
+func validateConfig(cfg config.Config) error {
+	if cfg.RouterHost == "" {
+		return errors.New("router_host is required")
+	}
+	if cfg.RouterUser == "" {
+		return errors.New("router_user is required")
+	}
+	if cfg.RouterPassword == "" {
+		return errors.New("router_password is required")
+	}
+	if cfg.ListenHost == "" {
+		return errors.New("listen_host is required")
+	}
+	if cfg.ListenPort == "" {
+		return errors.New("listen_port is required")
+	}
+
+	if _, err := strconv.Atoi(cfg.ListenPort); err != nil {
+		return fmt.Errorf("listen_port must be numeric: %w", err)
+	}
+
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
@@ -352,7 +494,7 @@ func writeError(w http.ResponseWriter, err error) {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 		if r.Method == http.MethodOptions {
