@@ -120,6 +120,27 @@ const API = {
         return this.fetchData('set_sms_state', `smsid=${encodeURIComponent(smsid)}&smsunread=${encodeURIComponent(smsunread)}`);
     },
 
+    deleteSms(smsids, options = {}) {
+        const ids = Array.isArray(smsids) ? smsids : (smsids === undefined ? [] : [smsids]);
+        const cleaned = ids
+            .map((id) => typeof id === 'number' ? String(id) : (id ?? '').toString())
+            .map((id) => id.trim())
+            .filter((id) => id.length > 0);
+
+        const payload = {};
+        if (cleaned.length > 0) {
+            payload.sms_ids = cleaned;
+        }
+        if (options.deleteAll) {
+            payload.delete_all = true;
+        }
+
+        if (!payload.delete_all && !payload.sms_ids) {
+            return Promise.reject(new Error('No SMS IDs provided'));
+        }
+        return this.sendJSON('delete_sms', payload);
+    },
+
     getCellularIdentity() {
         return this.fetchData('cell_identification');
     },
@@ -723,10 +744,69 @@ const DOM = {
             smsBadge.classList.add('hidden');
         }
 
+        const previous = this.smsData || [];
+        const previousIds = new Set(previous.map((sms) => sms.SMSID));
+        const newMessages = smsList.filter((sms) => !previousIds.has(sms.SMSID));
+
         // Store SMS data for dialog
         this.smsData = smsList;
+
+        if (newMessages.length > 0) {
+            const formatMessagePreview = (sms) => {
+                const sender = sms.SMSSender || 'Unknown';
+                const body = (sms.SMSContent || '').trim();
+                let preview = body;
+                if (preview.length > 80) {
+                    preview = `${preview.slice(0, 77)}…`;
+                }
+                return preview ? `${sender}: ${preview}` : `From ${sender}`;
+            };
+
+            const message = newMessages.length === 1
+                ? formatMessagePreview(newMessages[0])
+                : `${newMessages.length} new messages`;
+
+            App.showNotification({
+                title: 'New SMS received',
+                message,
+                tone: 'info'
+            });
+        }
+
+        const smsDialog = document.getElementById('smsDialog');
+        if (smsDialog?.classList.contains('active')) {
+            renderSmsDialog();
+        }
     },
 };
+
+function setButtonLoadingState(button, loading, { loadingText = 'Processing…', spinnerColor = 'text-white' } = {}) {
+    if (!button) return;
+
+    if (loading) {
+        if (!button.dataset.defaultContent) {
+            button.dataset.defaultContent = button.innerHTML;
+        }
+        const safeText = DOM.escapeHtml(loadingText);
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        button.innerHTML = `
+            <span class="inline-flex items-center gap-2">
+                <svg class="h-4 w-4 animate-spin ${spinnerColor}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>${safeText}</span>
+            </span>
+        `;
+    } else {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        if (button.dataset.defaultContent) {
+            button.innerHTML = button.dataset.defaultContent;
+        }
+    }
+}
 
 // Main Application
 const App = {
@@ -1745,68 +1825,185 @@ async function handleRebootDevice() {
 }
 
 async function showSmsDialog() {
-    const smsIcon = document.getElementById('smsIcon');
     const smsDialog = document.getElementById('smsDialog');
-    const smsCloseDialog = document.getElementById('smsCloseDialog');
+    if (!smsDialog) return;
+    smsDialog.classList.add('active');
+    renderSmsDialog();
+}
+
+function renderSmsDialog() {
+    const smsDialog = document.getElementById('smsDialog');
     const smsList = document.getElementById('smsList');
     const smsTotalCount = document.getElementById('smsTotalCount');
     const smsUnreadCount = document.getElementById('smsUnreadCount');
+    const smsBadge = document.getElementById('smsBadge');
+    const deleteAllBtn = document.getElementById('smsDeleteAllBtn');
 
     smsDialog.classList.add('active');
     if (!DOM.smsData) return;
 
-    // Update counts
-    const totalCount = DOM.smsData.length;
-    const unreadCount = DOM.smsData.filter(sms => sms.SMSUnread).length;
+    if (deleteAllBtn && !deleteAllBtn.dataset.defaultContent) {
+        deleteAllBtn.dataset.defaultContent = deleteAllBtn.innerHTML;
+    }
 
-    smsTotalCount.textContent = totalCount;
-    smsUnreadCount.textContent = unreadCount;
+    const renderEmptyState = () => {
+        smsList.innerHTML = '<p class="text-xs text-gray-400 text-center border border-dashed border-[#3a3a3a] rounded-lg px-3 py-4">No SMS messages.</p>';
+    };
 
-    // Clear previous list
+    const updateCounters = () => {
+        const totalCount = DOM.smsData.length;
+        const unreadCount = DOM.smsData.filter((item) => item.SMSUnread).length;
+
+        smsTotalCount.textContent = totalCount;
+        smsUnreadCount.textContent = unreadCount;
+        if (deleteAllBtn) {
+            const hasMessages = totalCount > 0;
+            deleteAllBtn.disabled = !hasMessages;
+            deleteAllBtn.classList.toggle('hidden', !hasMessages);
+        }
+
+        if (smsBadge) {
+            if (unreadCount > 0) {
+                smsBadge.textContent = unreadCount;
+                smsBadge.classList.remove('hidden');
+            } else {
+                smsBadge.textContent = '0';
+                smsBadge.classList.add('hidden');
+            }
+        }
+
+        return { totalCount, unreadCount };
+    };
+
+    const counts = updateCounters();
+
     smsList.innerHTML = '';
+    if (counts.totalCount === 0) {
+        renderEmptyState();
+        return;
+    }
 
-    // Add SMS items
-    DOM.smsData.forEach(sms => {
+    DOM.smsData.forEach((sms) => {
         const smsItem = document.createElement('div');
         smsItem.className = `p-3 rounded-lg border ${sms.SMSUnread ? 'bg-blue-900 border-blue-700' : 'bg-[#282828] border-gray-600'}`;
-        smsItem.innerHTML = `
-                <div class="flex justify-between items-start cursor-pointer">
-                    <div class="flex-1">
-                        <p class="font-semibold text-white">${sms.SMSSender || 'Unknown'}</p>
-                        <p class="text-gray-400 text-sm mt-1">${new Date(sms.SMSDateTime).toLocaleString()}</p>
-                        <p class="text-gray-300 mt-2">${sms.SMSContent}</p>
-                    </div>
-                </div>
-            `;
+        smsItem.dataset.smsid = sms.SMSID;
 
-        // TODO: Add delete func
-        // <span class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">Delete</span>
+        const wrapper = document.createElement('div');
+        wrapper.className = 'flex justify-between items-start gap-3';
 
-        // Mark as read when clicked
+        const content = document.createElement('div');
+        content.className = `flex-1 ${sms.SMSUnread ? 'cursor-pointer' : ''}`;
+        content.innerHTML = `
+            <p class="font-semibold text-white">${DOM.escapeHtml(sms.SMSSender || 'Unknown')}</p>
+            <p class="text-gray-400 text-sm mt-1">${new Date(sms.SMSDateTime).toLocaleString()}</p>
+            <p class="text-gray-300 mt-2 whitespace-pre-wrap break-words">${DOM.escapeHtml(sms.SMSContent || '')}</p>
+        `;
+
+        const actions = document.createElement('div');
+        actions.className = 'flex flex-col items-end gap-2';
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'inline-flex items-center gap-2 rounded-md border border-red-500/60 px-3 py-1.5 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 focus:outline-none focus:ring-2 focus:ring-red-500/40 disabled:cursor-not-allowed disabled:opacity-60';
+        deleteBtn.innerHTML = `
+            <span class="flex items-center gap-1">
+                <i class="fas fa-times text-xs"></i>
+            </span>
+        `;
+
+        actions.appendChild(deleteBtn);
+        wrapper.appendChild(content);
+        wrapper.appendChild(actions);
+        smsItem.appendChild(wrapper);
+        smsList.appendChild(smsItem);
+
         if (sms.SMSUnread) {
-            smsItem.addEventListener('click', async function() {
+            content.addEventListener('click', async () => {
                 try {
                     await API.setSmsState(sms.SMSID, false);
+                    sms.SMSUnread = false;
                     smsItem.classList.remove('bg-blue-900', 'border-blue-700');
                     smsItem.classList.add('bg-[#282828]', 'border-gray-600');
-                    sms.SMSUnread = false;
-
-                    // Update badge count
-                    const newUnreadCount = DOM.smsData.filter(s => s.SMSUnread).length;
-                    document.getElementById('smsBadge').textContent = newUnreadCount;
-                    smsUnreadCount.textContent = newUnreadCount;
-
-                    if (newUnreadCount === 0) {
-                        document.getElementById('smsBadge').classList.add('hidden');
-                    }
+                    content.classList.remove('cursor-pointer');
+                    updateCounters();
+                    App.showNotification({
+                        title: 'SMS marked as read',
+                        message: sms.SMSSender ? `From ${sms.SMSSender}` : undefined,
+                        tone: 'success'
+                    });
                 } catch (error) {
                     console.error('Error marking SMS as read:', error);
                 }
             });
         }
 
-        smsList.appendChild(smsItem);
+        deleteBtn.addEventListener('click', async (event) => {
+            event.stopPropagation();
+            if (deleteBtn.disabled) return;
+
+            setButtonLoadingState(deleteBtn, true, { loadingText: 'Deleting…', spinnerColor: 'text-red-200' });
+            try {
+                await API.deleteSms(sms.SMSID);
+                DOM.smsData = DOM.smsData.filter((item) => item.SMSID !== sms.SMSID);
+                smsItem.remove();
+
+                const { totalCount } = updateCounters();
+                if (totalCount === 0) {
+                    renderEmptyState();
+                }
+
+                App.showNotification({
+                    title: 'SMS deleted',
+                    tone: 'success'
+                });
+            } catch (error) {
+                console.error('Error deleting SMS:', error);
+                App.showNotification({
+                    title: 'Failed to delete SMS',
+                    message: error.message || 'Unable to delete message.',
+                    tone: 'error'
+                });
+            } finally {
+                if (deleteBtn.isConnected) {
+                    setButtonLoadingState(deleteBtn, false);
+                }
+            }
+        });
     });
+
+    if (deleteAllBtn) {
+        deleteAllBtn.onclick = async (event) => {
+            event.preventDefault();
+            if (deleteAllBtn.disabled) return;
+            if (!window.confirm('Delete all SMS messages? This cannot be undone.')) {
+                return;
+            }
+
+            setButtonLoadingState(deleteAllBtn, true, { loadingText: 'Deleting…', spinnerColor: 'text-red-200' });
+            try {
+                await API.deleteSms([], { deleteAll: true });
+                DOM.smsData = [];
+                renderEmptyState();
+                updateCounters();
+                App.showNotification({
+                    title: 'All SMS deleted',
+                    tone: 'success'
+                });
+            } catch (error) {
+                console.error('Error deleting all SMS:', error);
+                App.showNotification({
+                    title: 'Failed to delete all SMS',
+                    message: error.message || 'Unable to delete all messages.',
+                    tone: 'error'
+                });
+            } finally {
+                setButtonLoadingState(deleteAllBtn, false);
+                if (DOM.smsData.length === 0) {
+                    deleteAllBtn.classList.add('hidden');
+                }
+            }
+        };
+    }
 }
 
 function hideSmsDialog() {

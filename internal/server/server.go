@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
 	"nokia_router/internal/config"
 	"nokia_router/internal/router"
@@ -99,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/lan_status", s.handleLanStatus)
 	mux.HandleFunc("/api/sms", s.handleSmsList)
 	mux.HandleFunc("/api/set_sms_state", s.handleSetSmsState)
+	mux.HandleFunc("/api/delete_sms", s.handleDeleteSms)
 	mux.HandleFunc("/api/cell_identification", s.handleCellIdentification)
 	mux.HandleFunc("/api/led_status", s.handleLedStatus)
 	mux.HandleFunc("/api/led_state", s.handleLedState)
@@ -352,6 +356,29 @@ func (s *Server) handleSetSmsState(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleDeleteSms(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ids, deleteAll, err := extractSmsDeleteRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if len(ids) == 0 && !deleteAll {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "No SMS IDs provided"})
+		return
+	}
+
+	s.withSessionForMethods(w, r, []string{http.MethodPost}, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
+		client := s.getClient()
+		return client.DeleteSms(ctx, session, ids, deleteAll)
+	})
+}
+
 func (s *Server) handleCellIdentification(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
 		client := s.getClient()
@@ -509,7 +536,18 @@ func parseTruthy(value interface{}) bool {
 }
 
 func (s *Server) withSession(w http.ResponseWriter, r *http.Request, fn func(context.Context, *router.LoginSession) (interface{}, error)) {
-	if r.Method != http.MethodGet {
+	s.withSessionForMethods(w, r, []string{http.MethodGet}, fn)
+}
+
+func (s *Server) withSessionForMethods(w http.ResponseWriter, r *http.Request, methods []string, fn func(context.Context, *router.LoginSession) (interface{}, error)) {
+	allowed := len(methods) == 0
+	for _, method := range methods {
+		if r.Method == method {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -739,6 +777,89 @@ func corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func splitAndCleanIDs(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+
+	splitFn := func(r rune) bool {
+		return r == ',' || r == ';' || r == '|' || unicode.IsSpace(r)
+	}
+
+	parts := strings.FieldsFunc(raw, splitFn)
+	cleaned := make([]string, 0, len(parts))
+	for _, part := range parts {
+		id := strings.TrimSpace(part)
+		if id != "" {
+			cleaned = append(cleaned, id)
+		}
+	}
+	return cleaned
+}
+
+func extractSmsDeleteRequest(r *http.Request) ([]string, bool, error) {
+	var combined []string
+	deleteAll := false
+
+	if r.Body != nil {
+		defer r.Body.Close()
+		data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			return nil, false, fmt.Errorf("read request body: %w", err)
+		}
+
+		trimmed := bytes.TrimSpace(data)
+		if len(trimmed) > 0 {
+			var payload struct {
+				SMSIDs       []string `json:"sms_ids"`
+				IDs          []string `json:"ids"`
+				SMSID        string   `json:"sms_id"`
+				SMSList      []string `json:"SMSList"`
+				DeleteAll    bool     `json:"delete_all"`
+				DeleteAllAlt bool     `json:"DeleteAll"`
+			}
+			if err := json.Unmarshal(trimmed, &payload); err != nil {
+				return nil, false, fmt.Errorf("invalid JSON payload")
+			}
+			combined = append(combined, payload.SMSIDs...)
+			combined = append(combined, payload.IDs...)
+			if payload.SMSID != "" {
+				combined = append(combined, payload.SMSID)
+			}
+			combined = append(combined, payload.SMSList...)
+			deleteAll = payload.DeleteAll || payload.DeleteAllAlt
+		}
+	}
+
+	if queryIDs := splitAndCleanIDs(r.URL.Query().Get("smsid")); len(queryIDs) > 0 {
+		combined = append(combined, queryIDs...)
+	}
+	if !deleteAll {
+		if raw := strings.TrimSpace(r.URL.Query().Get("delete_all")); raw != "" {
+			if val, err := strconv.ParseBool(raw); err == nil && val {
+				deleteAll = true
+			}
+		}
+	}
+
+	cleaned := make([]string, 0, len(combined))
+	seen := make(map[string]struct{}, len(combined))
+	for _, candidate := range combined {
+		for _, id := range splitAndCleanIDs(candidate) {
+			if id == "" {
+				continue
+			}
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			cleaned = append(cleaned, id)
+		}
+	}
+
+	return cleaned, deleteAll, nil
 }
 
 func formatBytes(b int64) string {

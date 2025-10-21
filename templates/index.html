@@ -1011,13 +1011,23 @@
               </svg>
             </button>
           </div>
-          <p class="text-gray-400 text-sm">
-            You have <span id="smsTotalCount">0</span> messages (<span
-              id="smsUnreadCount"
-              >0</span
+          <div class="flex items-center justify-between gap-4 text-sm text-gray-400">
+            <p class="m-0">
+              You have <span id="smsTotalCount">0</span> messages (<span
+                id="smsUnreadCount"
+                >0</span
+              >
+              unread)
+            </p>
+            <button
+              id="smsDeleteAllBtn"
+              type="button"
+              class="hidden inline-flex items-center gap-2 rounded-md border border-red-500/60 bg-transparent px-3 py-1.5 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 focus:outline-none focus:ring-2 focus:ring-red-500/40 disabled:cursor-not-allowed disabled:opacity-60"
             >
-            unread)
-          </p>
+              <i class="fas fa-trash-alt text-xs"></i>
+              <span>Delete all</span>
+            </button>
+          </div>
         </div>
 
         <div class="mt-5 max-h-96 overflow-y-auto">

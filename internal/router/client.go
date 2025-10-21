@@ -313,6 +313,26 @@ func (c *Client) SetSmsState(ctx context.Context, session *LoginSession, smsID, 
 	return c.postAuthenticatedJSON(ctx, "service_function_web_app.cgi", session, payload)
 }
 
+func (c *Client) DeleteSms(ctx context.Context, session *LoginSession, smsIDs []string, deleteAll bool) (map[string]interface{}, error) {
+	if !deleteAll && len(smsIDs) == 0 {
+		return nil, fmt.Errorf("no SMS IDs provided")
+	}
+	payload := map[string]interface{}{
+		"version":    1,
+		"csrf_token": session.Token,
+		"id":         1,
+		"interface":  "Nokia.GenericService",
+		"service":    "OAM",
+		"function":   "DeleteSMS",
+		"paralist": []interface{}{
+			map[string]interface{}{
+				"SMSList": smsIDs,
+			},
+		},
+	}
+	return c.postAuthenticatedJSON(ctx, "service_function_web_app.cgi", session, payload)
+}
+
 func (c *Client) get(ctx context.Context, endpoint string, headers map[string]string) (map[string]interface{}, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/"+endpoint, nil)
 	if err != nil {
