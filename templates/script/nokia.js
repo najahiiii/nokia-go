@@ -72,6 +72,10 @@ const API = {
         return this.fetchData('device_status');
     },
 
+    getNetworkClients() {
+        return this.fetchData('network_clients');
+    },
+
     getServiceData() {
         return this.fetchData('service_data');
     },
@@ -150,6 +154,18 @@ const API = {
 
 // DOM Utilities
 const DOM = {
+    escapeHtml(value) {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    },
+
     updateSignalBars(strength) {
         // Validate and normalize strength (0-5, where 5 is strongest)
         strength = Math.max(0, Math.min(5, Math.floor(strength)));
@@ -717,6 +733,7 @@ const App = {
     async init() {
         this.initConfigDialog();
         this.initNotifications();
+        this.initConnectedDevicesModal();
 
         try {
             // Initial data load
@@ -805,6 +822,619 @@ const App = {
             container.className = 'toast-container pointer-events-auto';
             this.notificationRoot.appendChild(container);
         }
+    },
+
+    initConnectedDevicesModal() {
+        this.connectedDevices = {
+            modal: document.getElementById('connectedDevicesModal'),
+            trigger: document.getElementById('connectedDevicesViewAll'),
+            closeBtn: document.getElementById('connectedDevicesClose'),
+            loading: document.getElementById('connectedDevicesLoading'),
+            error: document.getElementById('connectedDevicesError'),
+            content: document.getElementById('connectedDevicesContent'),
+            summary: document.getElementById('connectedDevicesSummary'),
+            ethernetList: document.getElementById('connectedEthernetList'),
+            ethernetEmpty: document.getElementById('connectedEthernetEmpty'),
+            ethernetCount: document.getElementById('connectedEthernetCount'),
+            wifiList: document.getElementById('connectedWifiList'),
+            wifiEmpty: document.getElementById('connectedWifiEmpty'),
+            wifiCount: document.getElementById('connectedWifiCount')
+        };
+
+        const { trigger, closeBtn, modal } = this.connectedDevices ?? {};
+        if (!modal || !trigger) {
+            return;
+        }
+
+        trigger.addEventListener('click', (event) => {
+            event.preventDefault();
+            this.openConnectedDevicesModal();
+        });
+        trigger.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                this.openConnectedDevicesModal();
+            }
+        });
+        closeBtn?.addEventListener('click', () => this.closeConnectedDevicesModal());
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                this.closeConnectedDevicesModal();
+            }
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && modal.classList.contains('active')) {
+                this.closeConnectedDevicesModal();
+            }
+        });
+    },
+
+    async openConnectedDevicesModal() {
+        const modal = this.connectedDevices?.modal;
+        if (!modal) return;
+        modal.classList.add('active');
+        await this.refreshConnectedDevicesModal();
+    },
+
+    closeConnectedDevicesModal() {
+        const modal = this.connectedDevices?.modal;
+        if (!modal) return;
+        modal.classList.remove('active');
+    },
+
+    toggleConnectedDevicesLoading(show) {
+        const loading = this.connectedDevices?.loading;
+        if (!loading) return;
+        loading.classList.toggle('hidden', !show);
+    },
+
+    toggleConnectedDevicesContent(show) {
+        const content = this.connectedDevices?.content;
+        if (!content) return;
+        content.classList.toggle('hidden', !show);
+    },
+
+    showConnectedDevicesError(message) {
+        const errorEl = this.connectedDevices?.error;
+        if (!errorEl) return;
+        if (message) {
+            errorEl.textContent = message;
+            errorEl.classList.remove('hidden');
+        } else {
+            errorEl.textContent = '';
+            errorEl.classList.add('hidden');
+        }
+    },
+
+    async refreshConnectedDevicesModal() {
+        if (!this.connectedDevices?.modal) return;
+        this.toggleConnectedDevicesLoading(true);
+        this.toggleConnectedDevicesContent(false);
+        this.showConnectedDevicesError('');
+
+        try {
+            const data = await API.getNetworkClients();
+            this.connectedDevicesData = data;
+            const parsed = this.parseNetworkClients(data);
+            this.renderConnectedDevices(parsed);
+            this.toggleConnectedDevicesContent(true);
+        } catch (error) {
+            console.error('Failed to load network clients:', error);
+            this.showConnectedDevicesError(error.message || 'Failed to load connected devices.');
+        } finally {
+            this.toggleConnectedDevicesLoading(false);
+        }
+    },
+
+    parseNetworkClients(data) {
+        const result = {
+            ethernet: [],
+            wifi: [],
+            aps: [],
+            radios: [],
+            capabilities: this.extractCapabilities(data?.network?.clients?.capabilities),
+            raw: data
+        };
+
+        const aps = Array.isArray(data?.aps) ? data.aps : [];
+        aps.forEach((apEntry) => {
+            const ap = this.unwrapSingleEntry(apEntry);
+            if (!ap) return;
+
+            const macAddress = this.normalizeMacAddress(ap['mac-address']);
+            const apKey = macAddress || (ap['router-id-str'] || String(ap['router-id'] || ''));
+
+            const apMeta = {
+                key: apKey,
+                routerId: ap['router-id-str'] || ap['router-id'] || '',
+                hostname: ap.hostname || 'Access point',
+                ip: ap['ip-address'] || '',
+                mac: macAddress,
+                software: ap['software-version'] || '',
+                uptime: typeof ap['uptime-sec'] === 'number' ? ap['uptime-sec'] : this.coerceNumber(ap['uptime-sec'])
+            };
+            result.aps.push(apMeta);
+
+            const ethernetClients = Array.isArray(ap['ethernet-clients']) ? ap['ethernet-clients'] : [];
+            ethernetClients.forEach((clientEntry) => {
+                const client = this.unwrapSingleEntry(clientEntry);
+                if (!client) return;
+
+                const mac = this.normalizeMacAddress(client['mac-address'] || Object.keys(clientEntry || {})[0]);
+                if (!mac) return;
+
+                const phyRate = this.coerceNumber(client['phy-rate']);
+                const port = this.coerceNumber(client['port-number']);
+
+                result.ethernet.push({
+                    type: 'Ethernet',
+                    mac,
+                    name: client['host-name'] || client['hostname'] || '',
+                    ip: client['ip-address'] || client['ipv4-address'] || '',
+                    port: Number.isFinite(port) ? port : null,
+                    phyRate: Number.isFinite(phyRate) ? phyRate : null,
+                    vendor: client['vendor'],
+                    ap: apMeta,
+                    apKey,
+                    raw: client
+                });
+            });
+
+            const radios = Array.isArray(ap.radios) ? ap.radios : [];
+            radios.forEach((radioEntry) => {
+                const radio = this.unwrapSingleEntry(radioEntry);
+                if (!radio) return;
+
+                const radioMeta = {
+                    id: this.normalizeMacAddress(radio['radio-id'] || radio['mac-address']) || '',
+                    medium: radio.medium || '',
+                    band: radio.band || radio['band-type'] || radio['frequency-band'] || this.mediumToBand(radio.medium),
+                    standard: radio['wifi-standard'] || '',
+                    channel: this.coerceNumber(radio['channel'] ?? radio['channel-number']),
+                    metrics: radio.metrics || {},
+                    ap: apMeta,
+                    apKey
+                };
+                result.radios.push(radioMeta);
+
+                const ssids = Array.isArray(radio.ssids) ? radio.ssids : [];
+                ssids.forEach((ssidEntry) => {
+                    const ssid = this.unwrapSingleEntry(ssidEntry);
+                    if (!ssid) return;
+
+                    const ssidName = ssid.ssid || '';
+                    const bssid = this.normalizeMacAddress(ssid.bssid || radioMeta.id);
+                    const clients = Array.isArray(ssid.clients) ? ssid.clients : [];
+
+                    clients.forEach((clientEntry) => {
+                        const clientPayload = this.unwrapSingleEntry(clientEntry);
+                        if (!clientPayload) return;
+
+                        const macValue = clientPayload['mac-address'] || Object.keys(clientEntry || {})[0];
+                        const mac = this.normalizeMacAddress(macValue);
+                        if (!mac) return;
+
+                        const metrics = clientPayload.metrics || {};
+                        const ewma = clientPayload['ewma-metrics'] || {};
+                        const sensing = clientPayload['sensing-data'] || {};
+                        const stats = clientPayload.stats || {};
+                        const capabilities = clientPayload.capabilities || {};
+
+                        result.wifi.push({
+                            type: 'WiFi',
+                            mac,
+                            name: clientPayload['host-name'] || clientPayload['hostname'] || clientPayload['device-name'] || '',
+                            ip: clientPayload['ip-address'] || clientPayload['ipv4-address'] || '',
+                            rssiDbm: this.coerceNumber(sensing['rssi-dbm']),
+                            signalStrength: this.coerceNumber(metrics['signal-strength'] ?? ewma['signal-strength'] ?? sensing.metric),
+                            downRateKbps: this.coerceNumber(metrics['last-data-dl-rate'] ?? ewma['last-data-dl-rate'] ?? sensing['data-rate-rx-kbps']),
+                            upRateKbps: this.coerceNumber(metrics['last-data-ul-rate'] ?? ewma['last-data-ul-rate'] ?? sensing['data-rate-tx-kbps']),
+                            phyRate: this.coerceNumber(clientPayload['phy-rate'] ?? clientPayload['link-rate']),
+                            band: radioMeta.band,
+                            medium: radioMeta.medium,
+                            standard: radioMeta.standard,
+                            channel: radioMeta.channel,
+                            ssid: ssidName,
+                            bssid,
+                            vendor: clientPayload['vendor'],
+                            state: clientPayload['state'],
+                            txBytes: this.coerceNumber(stats['total-tx-bytes']),
+                            rxBytes: this.coerceNumber(stats['total-rx-bytes']),
+                            secondsSinceSeen: this.coerceNumber(sensing['seconds-since-seen']),
+                            connectedSeconds: this.coerceNumber(clientPayload['connected-time'] ?? clientPayload['connection-time']),
+                            capabilities,
+                            ap: apMeta,
+                            apMac: apMeta.mac,
+                            apKey,
+                            raw: clientPayload
+                        });
+                    });
+                });
+            });
+        });
+
+        return result;
+    },
+
+    unwrapSingleEntry(entry) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            return null;
+        }
+        const keys = Object.keys(entry);
+        if (keys.length === 1) {
+            const candidate = entry[keys[0]];
+            if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+                return candidate;
+            }
+        }
+        return entry;
+    },
+
+    normalizeMacAddress(mac) {
+        if (!mac) return '';
+        const raw = String(mac).trim();
+        if (!raw) return '';
+        const hex = raw.replace(/[^0-9a-fA-F]/g, '');
+        if (hex.length === 12) {
+            return hex.match(/.{1,2}/g).join(':').toUpperCase();
+        }
+        return raw.toUpperCase();
+    },
+
+    extractCapabilities(capabilities) {
+        if (!capabilities || typeof capabilities !== 'object') {
+            return [];
+        }
+        return Object.entries(capabilities)
+            .filter(([, value]) => value === true || value === 'true' || value === 1 || value === '1')
+            .map(([key]) => this.formatCapabilityLabel(key));
+    },
+
+    formatCapabilityLabel(key) {
+        if (!key) return '';
+        const labelMap = {
+            'capable-24ghz-csa': '2.4 GHz CSA',
+            'capable-24ghz-ecsa': '2.4 GHz eCSA',
+            'capable-24ghz-mimo': '2.4 GHz MIMO',
+            'capable-24ghz-n': '2.4 GHz 802.11n',
+            'capable-24ghz-rx-streams': '2.4 GHz RX Streams',
+            'capable-24ghz-tx-streams': '2.4 GHz TX Streams',
+            'capable-5ghz-csa': '5 GHz CSA',
+            'capable-5ghz-ecsa': '5 GHz eCSA',
+            'capable-5ghz-mimo': '5 GHz MIMO',
+            'capable-5ghz-ac': '5 GHz 802.11ac',
+            'capable-5ghz-n': '5 GHz 802.11n',
+            'capable-5ghz-rx-streams': '5 GHz RX Streams',
+            'capable-5ghz-tx-streams': '5 GHz TX Streams',
+            'capable-6ghz': '6 GHz capable',
+            'capable-6ghz-csa': '6 GHz CSA',
+            'capable-6ghz-ecsa': '6 GHz eCSA',
+            'capable-6ghz-mimo': '6 GHz MIMO',
+            'capable-6ghz-rx-streams': '6 GHz RX Streams',
+            'capable-6ghz-tx-streams': '6 GHz TX Streams',
+            'capable-dfs': 'DFS aware',
+            'capable-fast-bss-transition': 'Fast BSS transition',
+            'capable-bss-transition': 'BSS transition',
+            'capable-radio-measurement': 'Radio measurement'
+        };
+        if (labelMap[key]) {
+            return labelMap[key];
+        }
+        return key
+            .replace(/[-_]/g, ' ')
+            .replace(/\b([a-z])/g, (match) => match.toUpperCase());
+    },
+
+    mediumToBand(medium) {
+        const label = this.formatMediumLabel(medium);
+        return label || medium || '';
+    },
+
+    formatMediumLabel(medium) {
+        switch (medium) {
+        case 'wifi-24':
+            return '2.4 GHz';
+        case 'wifi-5':
+            return '5 GHz';
+        case 'wifi-6':
+            return '6 GHz';
+        case 'ethernet':
+            return 'Ethernet';
+        default:
+            if (!medium) return '';
+            return medium.replace(/[-_]/g, ' ').replace(/\b([a-z])/g, (match) => match.toUpperCase());
+        }
+    },
+
+    coerceNumber(value) {
+        if (value === null || value === undefined) return null;
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : null;
+        }
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (!trimmed) return null;
+            const parsed = Number(trimmed);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+        if (typeof value === 'object' && value instanceof Number) {
+            const num = Number(value);
+            return Number.isFinite(num) ? num : null;
+        }
+        return null;
+    },
+
+    formatRateKbps(value) {
+        const num = this.coerceNumber(value);
+        if (num === null) return '';
+        if (Math.abs(num) >= 1000) {
+            const mbps = num / 1000;
+            const precision = mbps >= 100 ? 0 : mbps >= 10 ? 1 : 2;
+            return `${mbps.toFixed(precision)} Mbps`;
+        }
+        return `${num} Kbps`;
+    },
+
+    formatBytes(value) {
+        const num = this.coerceNumber(value);
+        if (num === null) return '';
+        if (num === 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        let unitIndex = 0;
+        let size = num;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        const precision = size >= 100 || unitIndex === 0 ? 0 : size >= 10 ? 1 : 2;
+        return `${size.toFixed(precision)} ${units[unitIndex]}`;
+    },
+
+    formatDurationSeconds(value) {
+        const num = this.coerceNumber(value);
+        if (num === null) return '';
+        if (num <= 0) return 'just now';
+        const seconds = Math.floor(num);
+        const periods = [
+            { label: 'd', seconds: 86400 },
+            { label: 'h', seconds: 3600 },
+            { label: 'm', seconds: 60 },
+            { label: 's', seconds: 1 }
+        ];
+        const parts = [];
+        let remaining = seconds;
+        for (const period of periods) {
+            if (remaining >= period.seconds) {
+                const valuePart = Math.floor(remaining / period.seconds);
+                parts.push(`${valuePart}${period.label}`);
+                remaining %= period.seconds;
+            }
+            if (parts.length === 2) {
+                break;
+            }
+        }
+        return parts.join(' ');
+    },
+
+    formatSignal(rssiDbm, signalStrength) {
+        const rssi = this.coerceNumber(rssiDbm);
+        if (rssi !== null) {
+            return `${rssi} dBm`;
+        }
+        const signal = this.coerceNumber(signalStrength);
+        if (signal !== null) {
+            return `${signal}`;
+        }
+        if (rssiDbm !== undefined && rssiDbm !== null && rssiDbm !== '') {
+            return String(rssiDbm);
+        }
+        if (signalStrength !== undefined && signalStrength !== null && signalStrength !== '') {
+            return String(signalStrength);
+        }
+        return '';
+    },
+
+    formatClientCapabilities(capabilities) {
+        if (!capabilities || typeof capabilities !== 'object') {
+            return '';
+        }
+        const enabled = Object.entries(capabilities)
+            .filter(([, value]) => value === true || value === 'true' || value === 1 || value === '1')
+            .map(([key]) => this.formatCapabilityLabel(key));
+        return enabled.join(', ');
+    },
+
+    renderConnectedDevices(parsed) {
+        const refs = this.connectedDevices;
+        if (!refs) return;
+
+        if (refs.summary) {
+            if (!parsed.aps.length) {
+                refs.summary.innerHTML = '<p class="col-span-full text-xs text-gray-500">No access points reported.</p>';
+            } else {
+                const summaryHtml = parsed.aps.map((ap) => {
+                    const wifiCount = parsed.wifi.filter((client) => client.apKey === ap.key).length;
+                    const ethernetCount = parsed.ethernet.filter((client) => client.apKey === ap.key).length;
+                    const radios = parsed.radios.filter((radio) => radio.apKey === ap.key);
+
+                    const hostname = DOM.escapeHtml(ap.hostname || ap.routerId || 'Access point');
+                    const ip = ap.ip ? DOM.escapeHtml(ap.ip) : '';
+                    const mac = ap.mac ? DOM.escapeHtml(ap.mac) : '';
+                    const software = ap.software ? DOM.escapeHtml(ap.software) : '';
+                    const uptime = typeof ap.uptime === 'number' ? DOM.escapeHtml(DOM.formatUptime(ap.uptime)) : '';
+
+                    const countsLine = `<div class="text-xs text-gray-400">Devices: WiFi ${wifiCount} · Ethernet ${ethernetCount}</div>`;
+                    const radioBadges = radios.map((radio) => {
+                        const mediumLabel = this.formatMediumLabel(radio.medium) || radio.band || radio.standard;
+                        const channelLabel = Number.isFinite(radio.channel) ? `Ch ${radio.channel}` : '';
+                        const parts = [mediumLabel, channelLabel].filter(Boolean).join(' · ');
+                        if (!parts) return '';
+                        return `<span class="inline-flex items-center gap-1 text-[11px] font-medium bg-[#2d2d2d] text-gray-200 px-2 py-1 rounded-full border border-[#3e3e3e]">${DOM.escapeHtml(parts)}</span>`;
+                    }).filter(Boolean).join('');
+                    const radiosLine = radioBadges ? `<div class="flex flex-wrap gap-2 pt-2">${radioBadges}</div>` : '';
+
+                    return `
+                        <article class="rounded-lg border border-[#3a3a3a] bg-[#222222] p-4 space-y-1">
+                            <div class="text-sm font-semibold text-[#f1f1f1]">${hostname}</div>
+                            ${ip ? `<div class="text-xs text-gray-400">IP: ${ip}</div>` : ''}
+                            ${mac ? `<div class="text-xs text-gray-400">MAC: ${mac}</div>` : ''}
+                            ${software ? `<div class="text-xs text-gray-500">Firmware: ${software}</div>` : ''}
+                            ${uptime ? `<div class="text-xs text-gray-500">Uptime: ${uptime}</div>` : ''}
+                            ${countsLine}
+                            ${radiosLine}
+                        </article>
+                    `;
+                }).join('');
+                const capabilitySection = parsed.capabilities.length
+                    ? `
+                        <article class="rounded-lg border border-[#3a3a3a] bg-[#1b1b1b] p-4">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-[#e5e5e5] mb-2">Network features</div>
+                            <div class="flex flex-wrap gap-2">
+                                ${parsed.capabilities.map((cap) =>
+                                    `<span class="inline-flex items-center gap-1 text-[11px] font-medium bg-[#2d2d2d] text-gray-200 px-2 py-1 rounded-full border border-[#3e3e3e]">${DOM.escapeHtml(cap)}</span>`
+                                ).join('')}
+                            </div>
+                        </article>
+                    `
+                    : '';
+                refs.summary.innerHTML = summaryHtml + capabilitySection;
+            }
+        }
+
+        if (refs.ethernetCount) {
+            refs.ethernetCount.textContent = `${parsed.ethernet.length} device${parsed.ethernet.length === 1 ? '' : 's'}`;
+        }
+        if (refs.ethernetList) {
+            if (!parsed.ethernet.length) {
+                refs.ethernetList.innerHTML = '';
+                refs.ethernetEmpty?.classList.remove('hidden');
+            } else {
+                refs.ethernetEmpty?.classList.add('hidden');
+                refs.ethernetList.innerHTML = parsed.ethernet.map((client) => this.renderConnectedDeviceCard(client)).join('');
+            }
+        }
+
+        if (refs.wifiCount) {
+            refs.wifiCount.textContent = `${parsed.wifi.length} device${parsed.wifi.length === 1 ? '' : 's'}`;
+        }
+        if (refs.wifiList) {
+            if (!parsed.wifi.length) {
+                refs.wifiList.innerHTML = '';
+                refs.wifiEmpty?.classList.remove('hidden');
+            } else {
+                refs.wifiEmpty?.classList.add('hidden');
+                refs.wifiList.innerHTML = parsed.wifi.map((client) => this.renderConnectedDeviceCard(client)).join('');
+            }
+        }
+    },
+
+    renderConnectedDeviceCard(client) {
+        const name = client.name ? DOM.escapeHtml(client.name) : '';
+        const mac = client.mac ? DOM.escapeHtml(client.mac) : '';
+        const ip = (client.ip && client.ip !== '0.0.0.0') ? DOM.escapeHtml(client.ip) : '';
+        const type = DOM.escapeHtml(client.type || 'Device');
+
+        const title = name || mac || 'Unknown device';
+        const macLine = name ? mac : '';
+
+        const apInfoParts = [];
+        if (client.ap?.hostname) {
+            apInfoParts.push(DOM.escapeHtml(client.ap.hostname));
+        }
+        if (client.ap?.ip) {
+            apInfoParts.push(`IP ${DOM.escapeHtml(client.ap.ip)}`);
+        }
+
+        const topRightLines = [];
+        if (apInfoParts.length) {
+            topRightLines.push(`<div>${apInfoParts.join(' · ')}</div>`);
+        }
+        if (client.type === 'WiFi') {
+            const radioParts = [
+                this.formatMediumLabel(client.medium),
+                client.standard,
+                Number.isFinite(client.channel) ? `Ch ${client.channel}` : ''
+            ].filter(Boolean).map((value) => DOM.escapeHtml(value));
+            if (radioParts.length) {
+                topRightLines.push(`<div>${radioParts.join(' · ')}</div>`);
+            }
+        }
+        if (client.ap?.mac) {
+            topRightLines.push(`<div>${DOM.escapeHtml(client.ap.mac)}</div>`);
+        }
+
+        let tags = [];
+        if (client.type === 'WiFi') {
+            tags = [
+                this.createDeviceTag('SSID', client.ssid),
+                this.createDeviceTag('BSSID', client.bssid),
+                this.createDeviceTag('Band', client.band || this.formatMediumLabel(client.medium)),
+                this.createDeviceTag('Channel', Number.isFinite(client.channel) ? `Ch ${client.channel}` : client.channel),
+                this.createDeviceTag('Standard', client.standard),
+                this.createDeviceTag('State', client.state),
+                this.createDeviceTag('Signal', this.formatSignal(client.rssiDbm, client.signalStrength)),
+                this.createDeviceTag('Downlink', this.formatRateKbps(client.downRateKbps)),
+                this.createDeviceTag('Uplink', this.formatRateKbps(client.upRateKbps)),
+                this.createDeviceTag('PHY', this.formatRate(client.phyRate)),
+                this.createDeviceTag('RX', this.formatBytes(client.rxBytes)),
+                this.createDeviceTag('TX', this.formatBytes(client.txBytes)),
+                this.createDeviceTag('Vendor', client.vendor),
+                this.createDeviceTag('Last seen', this.formatDurationSeconds(client.secondsSinceSeen)),
+                this.createDeviceTag('Connected', this.formatDurationSeconds(client.connectedSeconds)),
+                this.createDeviceTag('Capabilities', this.formatClientCapabilities(client.capabilities))
+            ];
+        } else {
+            tags = [
+                this.createDeviceTag('Port', client.port),
+                this.createDeviceTag('PHY', this.formatRate(client.phyRate)),
+                this.createDeviceTag('Vendor', client.vendor)
+            ];
+        }
+        tags = tags.filter(Boolean);
+
+        return `
+            <article class="rounded-lg border border-[#3a3a3a] bg-[#222222] p-4 space-y-3">
+                <div class="flex flex-wrap justify-between gap-3">
+                    <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-gray-400">${type}</div>
+                        <div class="text-sm font-semibold text-[#f1f1f1]">${title}</div>
+                        ${macLine ? `<div class="text-xs text-gray-500">${macLine}</div>` : ''}
+                        ${ip ? `<div class="text-xs text-gray-500">IP: ${ip}</div>` : ''}
+                    </div>
+                    <div class="text-right text-[11px] text-gray-500">
+                        ${topRightLines.join('')}
+                    </div>
+                </div>
+                ${tags.length ? `<div class="flex flex-wrap gap-2">${tags.join('')}</div>` : ''}
+            </article>
+        `;
+    },
+
+    createDeviceTag(label, value) {
+        if (value === undefined || value === null || value === '') {
+            return '';
+        }
+        const text = Array.isArray(value) ? value.filter(Boolean).join(', ') : value;
+        if (text === undefined || text === null || text === '') {
+            return '';
+        }
+        const formatted = String(text);
+        if (!formatted.trim() && formatted !== '0') {
+            return '';
+        }
+        return `<span class="inline-flex items-center gap-1 text-[11px] font-medium bg-[#2d2d2d] text-gray-200 px-2 py-1 rounded-full border border-[#3e3e3e]">${DOM.escapeHtml(label)}: ${DOM.escapeHtml(formatted)}</span>`;
+    },
+
+    formatRate(value) {
+        const num = this.coerceNumber(value);
+        if (num === null) return '';
+        if (Math.abs(num) >= 1000) {
+            const gbps = num / 1000;
+            const precision = gbps >= 100 ? 0 : gbps >= 10 ? 1 : 2;
+            return `${gbps.toFixed(precision)} Gbps`;
+        }
+        const precision = Math.abs(num) >= 10 ? 0 : 1;
+        return `${num.toFixed(precision)} Mbps`;
     },
 
     showNotification({ title = 'Notification', message = '', tone = 'info', duration = 4000 } = {}) {

@@ -484,6 +484,7 @@
           >
             <h2 id="connected-devices-title" class="m-0">Connected devices</h2>
             <span
+              id="connectedDevicesViewAll"
               role="link"
               tabindex="0"
               class="text-xs text-[#6495ed] cursor-pointer select-none hover:underline"
@@ -722,6 +723,88 @@
               Next
             </button>
           </form>
+        </div>
+      </div>
+    </div>
+
+    <div id="connectedDevicesModal" class="dialog-overlay">
+      <div class="dialog-container w-full max-w-3xl">
+        <div class="flex justify-between items-start mb-4">
+          <div>
+            <h1 class="text-xl font-bold">Connected devices</h1>
+          </div>
+          <button
+            id="connectedDevicesClose"
+            class="text-gray-300 hover:bg-gray-700 p-2 rounded-full"
+            type="button"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 34 34"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M12.0285 13.4432C11.65 13.0647 11.6597 12.4412 12.0502 12.0507C12.4408 11.6602 13.0642 11.6504 13.4427 12.0289L21.9715 20.5577C22.35 20.9363 22.3403 21.5597 21.9497 21.9502C21.5592 22.3407 20.9358 22.3505 20.5573 21.972L12.0285 13.4432Z"
+                fill="currentColor"
+              ></path>
+              <path
+                d="M20.5573 12.0291C20.9358 11.6506 21.5593 11.6603 21.9498 12.0509C22.3403 12.4414 22.35 13.0648 21.9715 13.4433L13.4427 21.9721C13.0642 22.3506 12.4408 22.3409 12.0503 21.9504C11.6598 21.5598 11.65 20.9364 12.0285 20.5579L20.5573 12.0291Z"
+                fill="currentColor"
+              ></path>
+            </svg>
+          </button>
+        </div>
+
+        <div
+          id="connectedDevicesLoading"
+          class="flex items-center justify-center text-sm text-gray-400 py-16"
+        >
+          Loading latest data...
+        </div>
+
+        <div
+          id="connectedDevicesError"
+          class="hidden border border-red-500/60 bg-red-500/10 text-red-300 text-sm rounded-lg px-4 py-3 mb-4"
+        ></div>
+
+        <div id="connectedDevicesContent" class="hidden space-y-6">
+          <div
+            id="connectedDevicesSummary"
+            class="grid gap-3 sm:grid-cols-2 bg-[#1f1f1f] border border-[#3a3a3a] rounded-lg p-4 text-xs text-gray-300"
+          ></div>
+
+          <section>
+            <div class="flex items-center justify-between mb-2">
+              <h2 class="text-sm font-semibold">Ethernet</h2>
+              <span
+                id="connectedEthernetCount"
+                class="text-xs text-gray-400"
+              ></span>
+            </div>
+            <div id="connectedEthernetList" class="space-y-3"></div>
+            <p
+              id="connectedEthernetEmpty"
+              class="hidden text-xs text-gray-500 border border-dashed border-[#3a3a3a] rounded-lg px-3 py-4 text-center"
+            >
+              No Ethernet clients detected.
+            </p>
+          </section>
+
+          <section>
+            <div class="flex items-center justify-between mb-2">
+              <h2 class="text-sm font-semibold">WiFi</h2>
+              <span id="connectedWifiCount" class="text-xs text-gray-400"></span>
+            </div>
+            <div id="connectedWifiList" class="space-y-3"></div>
+            <p
+              id="connectedWifiEmpty"
+              class="hidden text-xs text-gray-500 border border-dashed border-[#3a3a3a] rounded-lg px-3 py-4 text-center"
+            >
+              No WiFi clients detected.
+            </p>
+          </section>
         </div>
       </div>
     </div>
