@@ -176,6 +176,10 @@ func (c *Client) GetDeviceStatus(ctx context.Context, session *LoginSession) (ma
 	return c.getAuthenticated(ctx, "device_status_web_app.cgi?getroot", session, nil)
 }
 
+func (c *Client) GetNetworkClientStatus(ctx context.Context, session *LoginSession) (map[string]interface{}, error) {
+	return c.getAuthenticated(ctx, "device_home_nw_client_status_web_app.cgi", session, nil)
+}
+
 func (c *Client) PostServiceData(ctx context.Context, session *LoginSession) (map[string]interface{}, error) {
 	payload := map[string]interface{}{
 		"version":    1,

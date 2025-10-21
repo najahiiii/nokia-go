@@ -89,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/overview", s.handleOverview)
 	mux.HandleFunc("/api/wan_status", s.handleWanStatus)
 	mux.HandleFunc("/api/device_status", s.handleDeviceStatus)
+	mux.HandleFunc("/api/network_clients", s.handleNetworkClients)
 	mux.HandleFunc("/api/service_data", s.handleServiceData)
 	mux.HandleFunc("/api/status_web", s.handleStatusWeb)
 	mux.HandleFunc("/api/set_apn", s.handleSetAPN)
@@ -254,6 +255,13 @@ func (s *Server) handleDeviceStatus(w http.ResponseWriter, r *http.Request) {
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
 		client := s.getClient()
 		return client.GetDeviceStatus(ctx, session)
+	})
+}
+
+func (s *Server) handleNetworkClients(w http.ResponseWriter, r *http.Request) {
+	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
+		client := s.getClient()
+		return client.GetNetworkClientStatus(ctx, session)
 	})
 }
 
