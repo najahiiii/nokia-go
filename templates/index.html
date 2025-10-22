@@ -422,8 +422,11 @@
             >
           </div>
           <div
-            role="listitem"
-            class="flex items-center gap-3 py-3 border-b border-gray-600 last:border-b-0"
+            id="wanIpTrigger"
+            role="button"
+            tabindex="0"
+            class="flex items-center gap-3 py-3 border-b border-gray-600 last:border-b-0 cursor-pointer"
+            aria-label="WAN IP details"
           >
             <div
               aria-hidden="true"
@@ -441,11 +444,15 @@
                 Online
               </div>
             </div>
-            <div
-              aria-label="WAN IP"
-              class="font-bold text-xs text-[#e5e5e5] ml-auto"
-            >
-              WAN IP
+            <div class="ml-auto text-right">
+              <div id="wanIpPreview" class="font-bold text-xs text-[#e5e5e5]">
+                —
+              </div>
+              <div
+                class="text-[10px] uppercase tracking-wider select-none text-[#9aa0b1]"
+              >
+                View details
+              </div>
             </div>
             <div aria-hidden="true" class="text-gray-400 text-sm">
               <i class="fas fa-chevron-right"></i>
@@ -795,7 +802,10 @@
           <section>
             <div class="flex items-center justify-between mb-2">
               <h2 class="text-sm font-semibold">WiFi</h2>
-              <span id="connectedWifiCount" class="text-xs text-gray-400"></span>
+              <span
+                id="connectedWifiCount"
+                class="text-xs text-gray-400"
+              ></span>
             </div>
             <div id="connectedWifiList" class="space-y-3"></div>
             <p
@@ -1011,7 +1021,9 @@
               </svg>
             </button>
           </div>
-          <div class="flex items-center justify-between gap-4 text-sm text-gray-400">
+          <div
+            class="flex items-center justify-between gap-4 text-sm text-gray-400"
+          >
             <p class="m-0">
               You have <span id="smsTotalCount">0</span> messages (<span
                 id="smsUnreadCount"
@@ -1022,7 +1034,7 @@
             <button
               id="smsDeleteAllBtn"
               type="button"
-              class="hidden inline-flex items-center gap-2 rounded-md border border-red-500/60 bg-transparent px-3 py-1.5 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 focus:outline-none focus:ring-2 focus:ring-red-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+              class="inline-flex items-center gap-2 rounded-md border border-red-500/60 bg-transparent px-3 py-1.5 text-xs font-semibold text-red-200 transition hover:bg-red-500/10 focus:outline-none focus:ring-2 focus:ring-red-500/40 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <i class="fas fa-trash-alt text-xs"></i>
               <span>Delete all</span>
@@ -1034,6 +1046,112 @@
           <div id="smsList" class="space-y-3">
             <!-- SMS items will be inserted here -->
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="wanIpDialog" class="dialog-overlay">
+      <div class="dialog-container w-full max-w-lg">
+        <div class="flex justify-between items-start mb-4">
+          <div>
+            <h1 class="text-xl font-bold">WAN details</h1>
+            <p class="text-gray-400 text-sm">
+              Active WAN address and DNS information.
+            </p>
+          </div>
+          <button
+            id="wanIpDialogClose"
+            class="text-gray-300 hover:bg-gray-700 p-2 rounded-full"
+            type="button"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 34 34"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M12.0285 13.4432C11.65 13.0647 11.6597 12.4412 12.0502 12.0507C12.4408 11.6602 13.0642 11.6504 13.4427 12.0289L21.9715 20.5577C22.35 20.9363 22.3403 21.5597 21.9497 21.9502C21.5592 22.3407 20.9358 22.3505 20.5573 21.972L12.0285 13.4432Z"
+                fill="currentColor"
+              ></path>
+              <path
+                d="M20.5573 12.0291C20.9358 11.6506 21.5593 11.6603 21.9498 12.0509C22.3403 12.4414 22.35 13.0648 21.9715 13.4433L13.4427 21.9721C13.0642 22.3506 12.4408 22.3409 12.0503 21.9504C11.6598 21.5598 11.65 20.9364 12.0285 20.5579L20.5573 12.0291Z"
+                fill="currentColor"
+              ></path>
+            </svg>
+          </button>
+        </div>
+
+        <div id="wanIpDialogLoading" class="text-sm text-gray-400 py-6">
+          Loading WAN information...
+        </div>
+
+        <div
+          id="wanIpDialogError"
+          class="hidden border border-red-500/60 bg-red-500/10 text-red-200 text-sm rounded-lg px-3 py-2 mb-4"
+        ></div>
+
+        <div id="wanIpDialogContent" class="hidden space-y-5">
+          <section class="rounded-lg border border-[#3a3a3a] bg-[#202020] p-3">
+            <h2 class="text-xs uppercase tracking-wider text-[#9aa0b1] mb-3">
+              IP Address
+            </h2>
+            <div class="grid gap-4 sm:grid-cols-1">
+              <div>
+                <h3
+                  class="text-[10px] uppercase tracking-wider text-[#9aa0b1] mb-2"
+                >
+                  IPv4
+                </h3>
+                <ul
+                  id="wanIpIpv4"
+                  class="space-y-1 text-sm text-gray-200 break-all"
+                ></ul>
+              </div>
+              <div>
+                <h3
+                  class="text-[10px] uppercase tracking-wider text-[#9aa0b1] mb-2"
+                >
+                  IPv6
+                </h3>
+                <ul
+                  id="wanIpIpv6"
+                  class="space-y-1 text-sm text-gray-200 break-all"
+                ></ul>
+              </div>
+            </div>
+          </section>
+
+          <section class="rounded-lg border border-[#3a3a3a] bg-[#202020] p-3">
+            <h2 class="text-xs uppercase tracking-wider text-[#9aa0b1] mb-3">
+              DNS Servers
+            </h2>
+            <div class="grid gap-4 sm:grid-cols-1">
+              <div>
+                <h3
+                  class="text-[10px] uppercase tracking-wider text-[#9aa0b1] mb-2"
+                >
+                  IPv4
+                </h3>
+                <ul
+                  id="wanIpDnsV4"
+                  class="space-y-1 text-sm text-gray-200 break-all"
+                ></ul>
+              </div>
+              <div>
+                <h3
+                  class="text-[10px] uppercase tracking-wider text-[#9aa0b1] mb-2"
+                >
+                  IPv6
+                </h3>
+                <ul
+                  id="wanIpDnsV6"
+                  class="space-y-1 text-sm text-gray-200 break-all"
+                ></ul>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>

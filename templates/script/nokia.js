@@ -268,19 +268,32 @@ const DOM = {
         }
 
         if (data.wan_conns?.[0]?.ipConns?.[0]) {
-            this.setTextContent('wanIp', data.wan_conns[0].ipConns[0].ExternalIPAddress);
+            const ipv4 = data.wan_conns[0].ipConns[0].ExternalIPAddress || 'Unavailable';
+            this.setTextContent('wanIp', ipv4);
+            this.setTextContent('wanIpPreview', ipv4);
         }
 
         if (data.wan_conns?.[0]?.ipConns?.[0]) {
-            const dnsList = data.wan_conns[0].ipConns[0].DNSServers.split(" ");
+            const dnsList = (data.wan_conns[0].ipConns[0].DNSServers || '')
+                .split(/[\s,]+/)
+                .map((dns) => dns.trim())
+                .filter(Boolean);
             const dnsContainer = document.getElementById('dnsServer');
-
-            dnsContainer.innerHTML = `
-                <span class="font-semibold text-xs">DNS Server</span>
-                <div class="flex flex-col text-right">
-                    ${dnsList.map(dns => `<span class="font-semibold text-xs">${dns}</span>`).join('')}
-                </div>
-            `;
+            if (dnsContainer) {
+                if (dnsList.length === 0) {
+                    dnsContainer.innerHTML = `
+                        <span class="font-semibold text-xs">DNS Server</span>
+                        <div class="flex flex-col text-right text-xs text-gray-400">Not provided</div>
+                    `;
+                } else {
+                    dnsContainer.innerHTML = `
+                        <span class="font-semibold text-xs">DNS Server</span>
+                        <div class="flex flex-col text-right">
+                            ${dnsList.map(dns => `<span class="font-semibold text-xs">${this.escapeHtml(dns)}</span>`).join('')}
+                        </div>
+                    `;
+                }
+            }
         }
     },
 
@@ -810,10 +823,12 @@ function setButtonLoadingState(button, loading, { loadingText = 'Processing…',
 
 // Main Application
 const App = {
+    latestPreloginStatus: null,
     async init() {
         this.initConfigDialog();
         this.initNotifications();
         this.initConnectedDevicesModal();
+        this.initWanIpDialog();
 
         try {
             // Initial data load
@@ -847,6 +862,7 @@ const App = {
 
     async loadData() {
         const status = await API.getPreloginStatus();
+        this.latestPreloginStatus = status;
         const statusWeb = await API.getStatusWeb();
         const service = await API.getServiceData();
         const device = await API.getDeviceStatus();
@@ -859,6 +875,10 @@ const App = {
         DOM.updateServiceInfo(service);
         DOM.updateDeviceStatus(device);
         DOM.updateSms(sms);
+
+        if (this.wanIpDialog?.classList.contains('active')) {
+            await this.renderWanIpDialog(true);
+        }
     },
 
     async loadDailyUsage() {
@@ -946,6 +966,222 @@ const App = {
             if (event.key === 'Escape' && modal.classList.contains('active')) {
                 this.closeConnectedDevicesModal();
             }
+        });
+    },
+
+    initWanIpDialog() {
+        this.wanIpDialog = document.getElementById('wanIpDialog');
+        if (!this.wanIpDialog) return;
+
+        this.wanIpTrigger = document.getElementById('wanIpTrigger');
+        this.wanIpDialogClose = document.getElementById('wanIpDialogClose');
+        this.wanIpDialogLoading = document.getElementById('wanIpDialogLoading');
+        this.wanIpDialogError = document.getElementById('wanIpDialogError');
+        this.wanIpDialogContent = document.getElementById('wanIpDialogContent');
+
+        this.wanIpTrigger?.addEventListener('click', (event) => {
+            event.preventDefault();
+            this.openWanIpDialog();
+        });
+        this.wanIpTrigger?.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                this.openWanIpDialog();
+            }
+        });
+
+        this.wanIpDialogClose?.addEventListener('click', () => this.closeWanIpDialog());
+        this.wanIpDialog.addEventListener('click', (event) => {
+            if (event.target === this.wanIpDialog) {
+                this.closeWanIpDialog();
+            }
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && this.wanIpDialog.classList.contains('active')) {
+                this.closeWanIpDialog();
+            }
+        });
+    },
+
+    async openWanIpDialog() {
+        if (!this.wanIpDialog) return;
+        this.wanIpDialog.classList.add('active');
+        await this.renderWanIpDialog();
+    },
+
+    closeWanIpDialog() {
+        this.wanIpDialog?.classList.remove('active');
+    },
+
+    async renderWanIpDialog(suppressLoading = false) {
+        if (!this.wanIpDialog) return;
+
+        const showLoading = (visible) => {
+            if (this.wanIpDialogLoading) {
+                this.wanIpDialogLoading.classList.toggle('hidden', !visible);
+            }
+        };
+        const showError = (message) => {
+            if (!this.wanIpDialogError) return;
+            if (message) {
+                this.wanIpDialogError.textContent = message;
+                this.wanIpDialogError.classList.remove('hidden');
+            } else {
+                this.wanIpDialogError.textContent = '';
+                this.wanIpDialogError.classList.add('hidden');
+            }
+        };
+        const showContent = (visible) => {
+            if (this.wanIpDialogContent) {
+                this.wanIpDialogContent.classList.toggle('hidden', !visible);
+            }
+        };
+
+        if (suppressLoading) {
+            showLoading(false);
+            showError('');
+        } else {
+            showLoading(true);
+            showError('');
+            showContent(false);
+        }
+
+        let status = this.latestPreloginStatus;
+        if (!status) {
+            try {
+                status = await API.getPreloginStatus();
+                this.latestPreloginStatus = status;
+                DOM.updateNetworkInfo(status);
+            } catch (error) {
+                showLoading(false);
+                showError(error.message || 'Unable to fetch WAN information.');
+                showContent(false);
+                return;
+            }
+        }
+
+        const details = this.extractWanDetails(status);
+        if (!details) {
+            showLoading(false);
+            showError('WAN connection details are unavailable.');
+            showContent(false);
+            return;
+        }
+
+        const renderList = (id, values, label = '') => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (!values || values.length === 0) {
+                el.innerHTML = '<li class="text-xs text-[#6f768f]">Not provided</li>';
+                return;
+            }
+            el.innerHTML = values
+                .map((value) => {
+                    const safeValue = DOM.escapeHtml(value);
+                    const safeLabel = DOM.escapeHtml(label || 'Value');
+                    return `
+                        <li>
+                            <button
+                                type="button"
+                                class="wan-copy-button group flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left transition focus:outline-none"
+                                data-copy-value="${safeValue}"
+                                data-copy-label="${safeLabel}"
+                            >
+                                <span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-emerald-400"></span>
+                                <span class="flex-1 break-all text-sm text-[#d6d9e1]">${safeValue}</span>
+                            </button>
+                        </li>`;
+                })
+                .join('');
+        };
+
+        renderList('wanIpIpv4', details.ipv4 ? [details.ipv4] : [], 'IPv4 Address');
+        renderList('wanIpIpv6', details.ipv6 ? [details.ipv6] : [], 'IPv6 Address');
+        renderList('wanIpDnsV4', details.dnsV4, 'IPv4 DNS');
+        renderList('wanIpDnsV6', details.dnsV6, 'IPv6 DNS');
+
+        this.bindWanCopyHandlers();
+
+        showLoading(false);
+        showError('');
+        showContent(true);
+    },
+
+    extractWanDetails(status) {
+        const connection = status?.wan_conns?.[0]?.ipConns?.[0];
+        if (!connection) {
+            return null;
+        }
+
+        const parseList = (value) => {
+            if (typeof value !== 'string') {
+                return [];
+            }
+            return value
+                .split(/[\s,]+/)
+                .map((item) => item.trim())
+                .filter(Boolean);
+        };
+
+        return {
+            ipv4: connection.ExternalIPAddress || 'Unavailable',
+            ipv6: connection.X_CT_COM_IPv6IPAddress || 'Unavailable',
+            dnsV4: parseList(connection.DNSServers),
+            dnsV6: parseList(connection.X_CT_COM_IPv6DNSServers),
+        };
+    },
+
+    bindWanCopyHandlers() {
+        if (!this.wanIpDialog) return;
+        const buttons = this.wanIpDialog.querySelectorAll('.wan-copy-button');
+        buttons.forEach((button) => {
+            button.onclick = async (event) => {
+                event.preventDefault();
+                const value = button.dataset.copyValue;
+                if (!value) return;
+                const label = button.dataset.copyLabel || 'Value';
+
+                let copied = false;
+                if (navigator.clipboard?.writeText) {
+                    try {
+                        await navigator.clipboard.writeText(value);
+                        copied = true;
+                    } catch (_) {
+                        copied = false;
+                    }
+                }
+                if (!copied) {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = value;
+                    textarea.setAttribute('readonly', '');
+                    textarea.style.position = 'absolute';
+                    textarea.style.left = '-9999px';
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    try {
+                        document.execCommand('copy');
+                        copied = true;
+                    } catch (_) {
+                        copied = false;
+                    } finally {
+                        document.body.removeChild(textarea);
+                    }
+                }
+
+                if (copied) {
+                    App.showNotification({
+                        title: 'Copied to clipboard',
+                        message: `${label}: ${value}`,
+                        tone: 'success'
+                    });
+                } else {
+                    App.showNotification({
+                        title: 'Copy failed',
+                        message: 'Unable to copy value. Please copy manually.',
+                        tone: 'error'
+                    });
+                }
+            };
         });
     },
 
