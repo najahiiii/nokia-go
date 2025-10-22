@@ -830,6 +830,9 @@ func extractSmsDeleteRequest(r *http.Request) ([]string, bool, error) {
 			}
 			combined = append(combined, payload.SMSList...)
 			deleteAll = payload.DeleteAll || payload.DeleteAllAlt
+			if deleteAll {
+				combined = combined[:0]
+			}
 		}
 	}
 
@@ -840,6 +843,7 @@ func extractSmsDeleteRequest(r *http.Request) ([]string, bool, error) {
 		if raw := strings.TrimSpace(r.URL.Query().Get("delete_all")); raw != "" {
 			if val, err := strconv.ParseBool(raw); err == nil && val {
 				deleteAll = true
+				combined = combined[:0]
 			}
 		}
 	}

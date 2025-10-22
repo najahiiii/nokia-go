@@ -314,7 +314,9 @@ func (c *Client) SetSmsState(ctx context.Context, session *LoginSession, smsID, 
 }
 
 func (c *Client) DeleteSms(ctx context.Context, session *LoginSession, smsIDs []string, deleteAll bool) (map[string]interface{}, error) {
-	if !deleteAll && len(smsIDs) == 0 {
+	if deleteAll {
+		smsIDs = []string{}
+	} else if len(smsIDs) == 0 {
 		return nil, fmt.Errorf("no SMS IDs provided")
 	}
 	payload := map[string]interface{}{
