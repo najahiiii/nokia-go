@@ -1,6 +1,7 @@
 package server
 
 import (
+	"slices"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -540,13 +541,7 @@ func (s *Server) withSession(w http.ResponseWriter, r *http.Request, fn func(con
 }
 
 func (s *Server) withSessionForMethods(w http.ResponseWriter, r *http.Request, methods []string, fn func(context.Context, *router.LoginSession) (interface{}, error)) {
-	allowed := len(methods) == 0
-	for _, method := range methods {
-		if r.Method == method {
-			allowed = true
-			break
-		}
-	}
+	allowed := slices.Contains(methods, r.Method)
 	if !allowed {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
