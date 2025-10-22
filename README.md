@@ -14,7 +14,8 @@
 - Daily traffic usage visualisation with automatic aggregation and chart tooltips for the last seven days.
 - Connected device inventory showing LAN/Wi-Fi counts, per-device metadata, and alias resolution from router configuration.
 - Wi-Fi status panels for 2.4 GHz and 5 GHz networks that reflect enablement state and SSID details.
-- SMS inbox viewer with unread badge, inline message viewer, and mark-as-read support via router API.
+- SMS inbox viewer with unread badge, inline message viewer, mark-as-read actions, single/bulk deletion, and toast-driven feedback.
+- WAN IP overview card that opens a detailed modal with IPv4/IPv6 addressing and DNS resolvers, each value supporting click-to-copy.
 - LED control switch, enabling/disabling indicators with optimistic UI feedback.
 - Data expiration manager that reads, extends (30 days), or saves custom expiry timestamps directly on the router.
 - WAN IP renewal workflow that cycles APN profiles until a new public IP is observed, complete with progress/error toasts.
@@ -36,10 +37,12 @@
 - `GET /api/set_apn?apn=<profile>` — switches the router APN to the provided profile name.
 - `GET /api/wlan_configs_24g` — 2.4 GHz WLAN configuration and enablement flags.
 - `GET /api/wlan_configs_5g` — 5 GHz WLAN configuration and enablement flags.
+- `GET /api/network_clients` — topology dump of access points, Ethernet clients, and Wi-Fi stations.
 - `GET /api/do_reboot` — issues a reboot command to the router.
 - `GET /api/lan_status` — LAN device inventory with alias metadata.
 - `GET /api/sms` — SMS inbox payload from the router.
 - `GET /api/set_sms_state?smsid=<id>&smsunread=<0|1>` — toggles SMS read/unread state.
+- `POST /api/delete_sms` — deletes one or more SMS (`{"sms_ids":["16"]}`) or the entire inbox (`{"delete_all":true}`).
 - `GET /api/cell_identification` — cellular identity information (band, PCI, EARFCN, etc.).
 - `GET /api/led_status` — normalized LED enablement flags (`enabled`, `status_led`, `signal_led`).
 - `GET /api/led_state` — same normalized LED payload (read-only compatibility).
@@ -57,7 +60,7 @@
 
 ## Build
 
-Manual
+Manual (requires Go 1.24+)
 
 ```sh
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/nokia ./cmd/server
@@ -87,6 +90,8 @@ Run:
 If you build/run the project manually:
 
 ```sh
+# compile binary (if you did not run `make`)
+go build -o bin/nokia ./cmd/server
 # writes ~/.config/nokia/config.json with defaults path
 ./bin/nokia setup
 # start using the generated config
