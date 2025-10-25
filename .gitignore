@@ -16,7 +16,6 @@
 coverage.*
 *.coverprofile
 profile.cov
-server
 
 # Dependency directories (remove the comment below to include it)
 node_modules
