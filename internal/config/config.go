@@ -12,12 +12,21 @@ import (
 // Config holds application configuration values. All fields are optional;
 // fallbacks are applied when fields are empty.
 type Config struct {
-	RouterHost     string `json:"router_host"`
-	RouterUser     string `json:"router_user"`
-	RouterPassword string `json:"router_password"`
-	ListenHost     string `json:"listen_host"`
-	ListenPort     string `json:"listen_port"`
-	PollIntervalMs int    `json:"poll_interval_ms"`
+	RouterHost     string         `json:"router_host"`
+	RouterUser     string         `json:"router_user"`
+	RouterPassword string         `json:"router_password"`
+	ListenHost     string         `json:"listen_host"`
+	ListenPort     string         `json:"listen_port"`
+	PollIntervalMs int            `json:"poll_interval_ms"`
+	Telegram       TelegramConfig `json:"telegram"`
+}
+
+type TelegramConfig struct {
+	Enabled   bool   `json:"enabled"`
+	APIBase   string `json:"api_base"`
+	BotToken  string `json:"bot_token"`
+	ChatID    string `json:"chat_id"`
+	ParseMode string `json:"parse_mode"`
 }
 
 // Defaults provides safe defaults when nothing else is configured.
@@ -29,6 +38,13 @@ func Defaults() Config {
 		ListenHost:     "0.0.0.0",
 		ListenPort:     "5000",
 		PollIntervalMs: 1000,
+		Telegram: TelegramConfig{
+			Enabled:   false,
+			APIBase:   "https://api.telegram.org",
+			BotToken:  "",
+			ChatID:    "",
+			ParseMode: "",
+		},
 	}
 }
 
@@ -85,6 +101,21 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.PollIntervalMs = ms
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("TELEGRAM_ENABLED")); v != "" {
+		cfg.Telegram.Enabled = parseBool(v, cfg.Telegram.Enabled)
+	}
+	if v := strings.TrimSpace(os.Getenv("TELEGRAM_API_BASE")); v != "" {
+		cfg.Telegram.APIBase = v
+	}
+	if v := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")); v != "" {
+		cfg.Telegram.BotToken = v
+	}
+	if v := strings.TrimSpace(os.Getenv("TELEGRAM_CHAT_ID")); v != "" {
+		cfg.Telegram.ChatID = v
+	}
+	if v := strings.TrimSpace(os.Getenv("TELEGRAM_PARSE_MODE")); v != "" {
+		cfg.Telegram.ParseMode = v
+	}
 }
 
 func ensureDefaults(cfg *Config) {
@@ -107,6 +138,29 @@ func ensureDefaults(cfg *Config) {
 	}
 	if cfg.PollIntervalMs <= 0 {
 		cfg.PollIntervalMs = defaults.PollIntervalMs
+	}
+	if strings.TrimSpace(cfg.Telegram.APIBase) == "" {
+		cfg.Telegram.APIBase = defaults.Telegram.APIBase
+	}
+	if strings.TrimSpace(cfg.Telegram.ParseMode) == "" {
+		cfg.Telegram.ParseMode = defaults.Telegram.ParseMode
+	}
+}
+
+func parseBool(value string, fallback bool) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	switch trimmed {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	case "":
+		return fallback
+	default:
+		if num, err := strconv.ParseFloat(trimmed, 64); err == nil {
+			return num != 0
+		}
+		return fallback
 	}
 }
 

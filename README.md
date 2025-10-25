@@ -51,13 +51,14 @@
 - `GET /api/config/listener_available?host=&port=` — validates prospective listener host/port before saving config.
 - `GET /api/config` — returns the current merged configuration snapshot.
 - `POST /api/config` — persists configuration changes and triggers a hot reload.
+- `POST /api/telegram/send` — bridges messages to Telegram (`{"message":"text","chat_id":"override","parse_mode":"MarkdownV2"}`); uses configured chat ID / parse mode when omitted.
 
 ## Configuration
 
-- Copy `config.example.json` to `config.json` and adjust values.
+- Copy `config.example.json` to `config.json` and adjust values. Telegram bridging can be enabled by setting `telegram.enabled` to `true` and providing `bot_token`, `chat_id`, and optionally `parse_mode` (`Markdown`, `MarkdownV2`, or `HTML`).
 - Command line flag `-config` selects alternate file.
-- Environment variables (`ROUTER_HOSTNAME`, `ROUTER_USERNAME`, `ROUTER_PASSWORD`, `HOST`, `PORT`, `POLL_INTERVAL_MS`) override config fields.
-- Defaults applied if still unspecified: host `192.168.0.1`, user `admin`, password `6fa6e262c3`, listen `0.0.0.0:5000`, polling interval `1000` ms.
+- Environment variables (`ROUTER_HOSTNAME`, `ROUTER_USERNAME`, `ROUTER_PASSWORD`, `HOST`, `PORT`, `POLL_INTERVAL_MS`, `TELEGRAM_ENABLED`, `TELEGRAM_API_BASE`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_PARSE_MODE`) override config fields.
+- Defaults applied if still unspecified: host `192.168.0.1`, user `admin`, password `6fa6e262c3`, listen `0.0.0.0:5000`, polling interval `1000` ms, and Telegram integration disabled with API base `https://api.telegram.org`.
 
 ## Build
 
@@ -118,6 +119,11 @@ The application merges configuration from multiple sources in this order:
    - `HOST` (HTTP listen address)
    - `PORT` (HTTP listen port)
    - `POLL_INTERVAL_MS` (dashboard refresh cadence, minimum 1000 ms)
+   - `TELEGRAM_ENABLED`
+   - `TELEGRAM_API_BASE`
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_CHAT_ID`
+   - `TELEGRAM_PARSE_MODE`
 4. **Fallback cleanup**: after merge we ensure every field is populated—if any value ends up blank it is replaced by the default again.
 Running `setup` simply ensures the config file exists by materialising the defaults on disk (without overriding existing values). Subsequent edits—either manual or via the web UI—will be picked up the next time you invoke `run`, and the UI hot-reloads the service after each save.
 

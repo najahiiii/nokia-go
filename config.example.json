@@ -3,5 +3,12 @@
   "router_user": "admin",
   "router_password": "6fa6e262c3",
   "listen_host": "0.0.0.0",
-  "listen_port": "5000"
+  "listen_port": "5000",
+  "telegram": {
+    "enabled": false,
+    "api_base": "https://api.telegram.org",
+    "bot_token": "",
+    "chat_id": "",
+    "parse_mode": ""
+  }
 }

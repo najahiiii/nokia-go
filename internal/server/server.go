@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"nokia_router/internal/config"
@@ -34,20 +36,22 @@ type Server struct {
 	cfgPath string
 	cfg     config.Config
 
-	store  *settings.Store
-	logger *log.Logger
+	store      *settings.Store
+	logger     *log.Logger
+	httpClient *http.Client
 
 	reloadFn func(config.Config)
 }
 
 func New(client *router.Client, store *settings.Store, cfgPath string, cfg config.Config, reloadFn func(config.Config)) *Server {
 	return &Server{
-		client:   client,
-		cfgPath:  cfgPath,
-		cfg:      cfg,
-		store:    store,
-		logger:   log.New(os.Stdout, "[server] ", log.LstdFlags),
-		reloadFn: reloadFn,
+		client:     client,
+		cfgPath:    cfgPath,
+		cfg:        cfg,
+		store:      store,
+		logger:     log.New(os.Stdout, "[server] ", log.LstdFlags),
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+		reloadFn:   reloadFn,
 	}
 }
 
@@ -106,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/led_state", s.handleLedState)
 	mux.HandleFunc("/api/config/listener_available", s.handleConfigListenerCheck)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/telegram/send", s.handleTelegramSend)
 
 	mux.Handle("/_next/", http.StripPrefix("/_next/", http.FileServer(webtpl.NextStatic())))
 	mux.HandleFunc("/", s.handleNextApp)
@@ -378,6 +383,72 @@ func (s *Server) handleSetSmsState(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleTelegramSend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cfg := s.getConfig()
+	if !cfg.Telegram.Enabled {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Telegram integration is disabled"})
+		return
+	}
+	if strings.TrimSpace(cfg.Telegram.BotToken) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Telegram bot token is not configured"})
+		return
+	}
+
+	var payload struct {
+		Message   string `json:"message"`
+		ChatID    string `json:"chat_id"`
+		ParseMode string `json:"parse_mode"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return
+	}
+
+	message := strings.TrimSpace(payload.Message)
+	if message == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message is required"})
+		return
+	}
+	if len(message) > 4096 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message exceeds Telegram 4096 character limit"})
+		return
+	}
+
+	chatID := strings.TrimSpace(payload.ChatID)
+	if chatID == "" {
+		chatID = strings.TrimSpace(cfg.Telegram.ChatID)
+	}
+	if chatID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "chat_id is required"})
+		return
+	}
+
+	parseMode := strings.TrimSpace(payload.ParseMode)
+	if parseMode == "" {
+		parseMode = strings.TrimSpace(cfg.Telegram.ParseMode)
+	}
+	if parseMode != "" && !isValidTelegramParseMode(parseMode) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid parse_mode"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	if err := s.sendTelegramMessage(ctx, cfg.Telegram, chatID, parseMode, message); err != nil {
+		s.logger.Printf("telegram send failed: %v", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "failed to send Telegram message"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+}
+
 func (s *Server) handleDeleteSms(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -640,6 +711,55 @@ func (s *Server) handleConfigListenerCheck(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (s *Server) sendTelegramMessage(ctx context.Context, cfg config.TelegramConfig, chatID, parseMode, message string) error {
+	base := strings.TrimSpace(cfg.APIBase)
+	if base == "" {
+		base = config.Defaults().Telegram.APIBase
+	}
+	base = strings.TrimRight(base, "/")
+	endpoint := fmt.Sprintf("%s/bot%s/sendMessage", base, cfg.BotToken)
+
+	payload := map[string]interface{}{
+		"chat_id": chatID,
+		"text":    message,
+	}
+	if strings.TrimSpace(parseMode) != "" {
+		payload["parse_mode"] = parseMode
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("encode telegram payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create telegram request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send telegram request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	return fmt.Errorf("telegram error: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+}
+
+func isValidTelegramParseMode(mode string) bool {
+	switch strings.ToLower(mode) {
+	case "markdown", "markdownv2", "html":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -696,6 +816,13 @@ func normalizeConfig(cfg config.Config) config.Config {
 		ListenHost:     strings.TrimSpace(cfg.ListenHost),
 		ListenPort:     strings.TrimSpace(cfg.ListenPort),
 		PollIntervalMs: cfg.PollIntervalMs,
+		Telegram: config.TelegramConfig{
+			Enabled:   cfg.Telegram.Enabled,
+			APIBase:   strings.TrimSpace(cfg.Telegram.APIBase),
+			BotToken:  strings.TrimSpace(cfg.Telegram.BotToken),
+			ChatID:    strings.TrimSpace(cfg.Telegram.ChatID),
+			ParseMode: strings.TrimSpace(cfg.Telegram.ParseMode),
+		},
 	}
 
 	if normalized.RouterHost == "" {
@@ -715,6 +842,9 @@ func normalizeConfig(cfg config.Config) config.Config {
 	}
 	if normalized.PollIntervalMs <= 0 {
 		normalized.PollIntervalMs = defaults.PollIntervalMs
+	}
+	if strings.TrimSpace(normalized.Telegram.APIBase) == "" {
+		normalized.Telegram.APIBase = defaults.Telegram.APIBase
 	}
 
 	return normalized
@@ -742,6 +872,24 @@ func validateConfig(cfg config.Config) error {
 
 	if _, err := strconv.Atoi(cfg.ListenPort); err != nil {
 		return fmt.Errorf("listen_port must be numeric: %w", err)
+	}
+
+	if cfg.Telegram.Enabled {
+		if cfg.Telegram.BotToken == "" {
+			return errors.New("telegram.bot_token is required when Telegram integration is enabled")
+		}
+		if cfg.Telegram.ChatID == "" {
+			return errors.New("telegram.chat_id is required when Telegram integration is enabled")
+		}
+		if cfg.Telegram.APIBase == "" {
+			return errors.New("telegram.api_base is required when Telegram integration is enabled")
+		}
+		if _, err := url.ParseRequestURI(cfg.Telegram.APIBase); err != nil {
+			return fmt.Errorf("invalid telegram.api_base: %w", err)
+		}
+		if strings.TrimSpace(cfg.Telegram.ParseMode) != "" && !isValidTelegramParseMode(cfg.Telegram.ParseMode) {
+			return fmt.Errorf("invalid telegram.parse_mode: %s", cfg.Telegram.ParseMode)
+		}
 	}
 
 	return nil
