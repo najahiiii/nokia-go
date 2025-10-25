@@ -146,7 +146,22 @@ jobs:
           merge-multiple: true
           path: .
 
-      - name: Generate feeds
+      - name: Install usign
+        run: |
+          set -e
+          sudo apt-get update
+          if ! sudo apt-get install -y usign; then
+            sudo apt-get install -y build-essential cmake git
+            git clone https://github.com/openwrt/usign.git
+            cd usign && mkdir build && cd build
+            cmake .. && make
+            sudo make install
+          fi
+          usign -V || true
+
+      - name: Generate feeds (signed)
+        env:
+          OPKG_SECRET_KEY: ${{ secrets.OPKG_SECRET_KEY }}
         run: |
           set -e
           REPO_NAME="${GITHUB_REPOSITORY##*/}"
@@ -161,6 +176,12 @@ jobs:
           fi
 
           chmod +x .github/scripts/mkhash .github/scripts/ipkg-make-index
+
+          # prepare secret key from secret
+          SECRET="/tmp/opkg-secret.key"
+          [ -n "${OPKG_SECRET_KEY:-}" ] || { echo "Missing OPKG_SECRET_KEY"; exit 1; }
+          echo "$OPKG_SECRET_KEY" | base64 -d > "$SECRET"
+          chmod 600 "$SECRET"
 
           declare -A touched
           for ipk in "${IPKS[@]}"; do
@@ -177,10 +198,15 @@ jobs:
           done
 
           for d in "${!touched[@]}"; do
-            (cd "$d" && MKHASH="$GITHUB_WORKSPACE/.github/scripts/mkhash" \
-              "$GITHUB_WORKSPACE/.github/scripts/ipkg-make-index" . > Packages)
-            gzip -9fk "$d/Packages"
-            echo "== Head: $d/Packages =="; head -n 20 "$d/Packages" || true
+            (
+              cd "$d"
+              MKHASH="$GITHUB_WORKSPACE/.github/scripts/mkhash" \
+                "$GITHUB_WORKSPACE/.github/scripts/ipkg-make-index" . > Packages
+              gzip -9fk Packages
+              usign -S -m Packages -s "$SECRET" -x Packages.sig
+              echo "== Head: $d/Packages =="; head -n 20 Packages || true
+              ls -l Packages Packages.gz Packages.sig
+            )
           done
 
           echo "== Final pkg tree =="
@@ -198,9 +224,15 @@ jobs:
           ROOT_DIR="pkg/${REPO_NAME}"
           [ -d "pkg" ] || { echo "ERROR: 'pkg' directory not found"; exit 1; }
 
-          mkdir -p "$SITE_DIR/$ROOT_DIR"
+          mkdir -p "$SITE_DIR/$ROOT_DIR" "$SITE_DIR/$ROOT_DIR/keys"
           cp -a pkg "${SITE_DIR}/"
           touch "$SITE_DIR/.nojekyll"
+
+          if [ -f ".github/pages/opkg.pub" ]; then
+            cp .github/pages/opkg.pub "$SITE_DIR/$ROOT_DIR/keys/opkg.pub"
+          else
+            echo "WARN: public key not provided; clients cannot enable signature check easily" >&2
+          fi
 
           for d in $(find "${SITE_DIR}/${ROOT_DIR}" -mindepth 1 -maxdepth 1 -type d | sort); do
             arch="$(basename "$d")"
