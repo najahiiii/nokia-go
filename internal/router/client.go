@@ -297,7 +297,7 @@ func (c *Client) PostCellularIdentification(ctx context.Context, session *LoginS
 }
 
 func (c *Client) SetSmsState(ctx context.Context, session *LoginSession, smsID, smsUnread string) (map[string]interface{}, error) {
-	shouldUnread := !strings.EqualFold(strings.TrimSpace(smsUnread), "false")
+	shouldUnread := parseBoolString(smsUnread, true)
 	payload := map[string]interface{}{
 		"version":    1,
 		"csrf_token": session.Token,
@@ -311,6 +311,24 @@ func (c *Client) SetSmsState(ctx context.Context, session *LoginSession, smsID, 
 		},
 	}
 	return c.postAuthenticatedJSON(ctx, "service_function_web_app.cgi", session, payload)
+}
+
+func parseBoolString(value string, defaultValue bool) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	switch trimmed {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	case "":
+		return defaultValue
+	default:
+		parsed, err := strconv.ParseFloat(trimmed, 64)
+		if err == nil {
+			return parsed != 0
+		}
+		return defaultValue
+	}
 }
 
 func (c *Client) DeleteSms(ctx context.Context, session *LoginSession, smsIDs []string, deleteAll bool) (map[string]interface{}, error) {
