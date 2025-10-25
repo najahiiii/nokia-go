@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -16,6 +17,7 @@ type Config struct {
 	RouterPassword string `json:"router_password"`
 	ListenHost     string `json:"listen_host"`
 	ListenPort     string `json:"listen_port"`
+	PollIntervalMs int    `json:"poll_interval_ms"`
 }
 
 // Defaults provides safe defaults when nothing else is configured.
@@ -26,6 +28,7 @@ func Defaults() Config {
 		RouterPassword: "6fa6e262c3",
 		ListenHost:     "0.0.0.0",
 		ListenPort:     "5000",
+		PollIntervalMs: 1000,
 	}
 }
 
@@ -77,6 +80,11 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("PORT")); v != "" {
 		cfg.ListenPort = v
 	}
+	if v := strings.TrimSpace(os.Getenv("POLL_INTERVAL_MS")); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil {
+			cfg.PollIntervalMs = ms
+		}
+	}
 }
 
 func ensureDefaults(cfg *Config) {
@@ -96,6 +104,9 @@ func ensureDefaults(cfg *Config) {
 	}
 	if strings.TrimSpace(cfg.ListenPort) == "" {
 		cfg.ListenPort = defaults.ListenPort
+	}
+	if cfg.PollIntervalMs <= 0 {
+		cfg.PollIntervalMs = defaults.PollIntervalMs
 	}
 }
 

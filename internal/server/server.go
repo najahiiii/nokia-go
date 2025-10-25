@@ -1,7 +1,6 @@
 package server
 
 import (
-	"slices"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -13,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -674,6 +674,7 @@ func normalizeConfig(cfg config.Config) config.Config {
 		RouterPassword: strings.TrimSpace(cfg.RouterPassword),
 		ListenHost:     strings.TrimSpace(cfg.ListenHost),
 		ListenPort:     strings.TrimSpace(cfg.ListenPort),
+		PollIntervalMs: cfg.PollIntervalMs,
 	}
 
 	if normalized.RouterHost == "" {
@@ -690,6 +691,9 @@ func normalizeConfig(cfg config.Config) config.Config {
 	}
 	if normalized.ListenPort == "" {
 		normalized.ListenPort = defaults.ListenPort
+	}
+	if normalized.PollIntervalMs <= 0 {
+		normalized.PollIntervalMs = defaults.PollIntervalMs
 	}
 
 	return normalized
@@ -710,6 +714,9 @@ func validateConfig(cfg config.Config) error {
 	}
 	if cfg.ListenPort == "" {
 		return errors.New("listen_port is required")
+	}
+	if cfg.PollIntervalMs < 500 {
+		return errors.New("poll_interval_ms must be at least 500 milliseconds")
 	}
 
 	if _, err := strconv.Atoi(cfg.ListenPort); err != nil {

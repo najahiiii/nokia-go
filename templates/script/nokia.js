@@ -824,13 +824,28 @@ function setButtonLoadingState(button, loading, { loadingText = 'Processing…',
 // Main Application
 const App = {
     latestPreloginStatus: null,
+    pollIntervalMs: 1000,
     async init() {
         this.initConfigDialog();
         this.initNotifications();
         this.initConnectedDevicesModal();
         this.initWanIpDialog();
 
+        let configSnapshot = null;
+
         try {
+            try {
+                configSnapshot = await API.getConfig();
+            } catch (configError) {
+                console.warn("Failed to load configuration snapshot:", configError);
+            }
+
+            if (configSnapshot) {
+                this.applyPollingIntervalFromConfig(configSnapshot, { restart: false });
+            } else {
+                this.setPollIntervalControlFromMs(this.pollIntervalMs);
+            }
+
             // Initial data load
             await this.loadData();
 
@@ -857,7 +872,7 @@ const App = {
         }
 
         // Set up polling regardless of initial load outcome
-        this.startPolling(1000);
+        this.startPolling(this.pollIntervalMs);
     },
 
     async loadData() {
@@ -903,7 +918,9 @@ const App = {
             routerUser: document.getElementById('configRouterUser'),
             routerPassword: document.getElementById('configRouterPassword'),
             listenHost: document.getElementById('configListenHost'),
-            listenPort: document.getElementById('configListenPort')
+            listenPort: document.getElementById('configListenPort'),
+            pollInterval: document.getElementById('configPollInterval'),
+            pollIntervalLabel: document.getElementById('configPollIntervalValue')
         };
 
         const openBtn = document.getElementById('configIcon');
@@ -913,6 +930,11 @@ const App = {
         closeBtn?.addEventListener('click', () => this.closeConfigDialog());
         this.configCancelBtn?.addEventListener('click', () => this.closeConfigDialog());
         this.configForm?.addEventListener('submit', (event) => this.submitConfigForm(event));
+
+        this.configInputs.pollInterval?.addEventListener('input', (event) => {
+            const value = Number(event.target.value) || 1;
+            this.updatePollIntervalPreview(value);
+        });
     },
 
     initNotifications() {
@@ -1851,12 +1873,16 @@ const App = {
         event.preventDefault();
         if (!this.configForm) return;
 
+        const pollSeconds = Math.max(1, Math.round(Number(this.configInputs.pollInterval?.value || '1')));
+        const pollIntervalMs = Math.max(500, pollSeconds * 1000);
+
         const payload = {
             router_host: this.configInputs.routerHost?.value?.trim() || '',
             router_user: this.configInputs.routerUser?.value?.trim() || '',
             router_password: this.configInputs.routerPassword?.value || '',
             listen_host: this.configInputs.listenHost?.value?.trim() || '',
-            listen_port: this.configInputs.listenPort?.value?.trim() || ''
+            listen_port: this.configInputs.listenPort?.value?.trim() || '',
+            poll_interval_ms: pollIntervalMs
         };
 
         this.toggleConfigLoading(true);
@@ -1880,6 +1906,9 @@ const App = {
             const response = await API.updateConfig(payload);
             if (response?.config) {
                 this.populateConfigForm(response.config);
+                this.applyPollingIntervalFromConfig(response.config);
+            } else {
+                this.startPolling(pollIntervalMs);
             }
             const hostHint = `${targetHost || '0.0.0.0'}:${targetPort || '5000'}`;
             this.showNotification({
@@ -1900,6 +1929,47 @@ const App = {
         }
     },
 
+    setPollIntervalControlFromMs(ms) {
+        const input = this.configInputs?.pollInterval;
+        if (!input) return;
+
+        const defaultsMs = this.pollIntervalMs || 1000;
+        const baseMs = typeof ms === 'number' && !Number.isNaN(ms) && ms > 0 ? ms : defaultsMs;
+        const seconds = Math.round(baseMs / 1000);
+        const min = Number(input.min) || 1;
+        const max = Number(input.max) || 60;
+        const clamped = Math.min(Math.max(seconds, min), max);
+        input.value = String(clamped);
+        this.updatePollIntervalPreview(clamped);
+    },
+
+    updatePollIntervalPreview(seconds) {
+        const label = this.configInputs?.pollIntervalLabel;
+        const clamped = Math.max(1, Math.round(Number(seconds) || 1));
+        if (label) {
+            label.textContent = `${clamped}s`;
+        }
+    },
+
+    applyPollingIntervalFromConfig(cfg, options = {}) {
+        const provided = Number(cfg?.poll_interval_ms);
+        let desired = Number.isFinite(provided) && provided > 0 ? provided : this.pollIntervalMs || 1000;
+        if (desired < 500) {
+            desired = 500;
+        }
+
+        if (options.updateControl !== false) {
+            this.setPollIntervalControlFromMs(desired);
+        }
+
+        const changed = desired !== this.pollIntervalMs;
+        this.pollIntervalMs = desired;
+
+        if (options.restart !== false && changed) {
+            this.startPolling(desired);
+        }
+    },
+
     populateConfigForm(cfg) {
         if (!cfg) return;
         if (this.configInputs.routerHost) this.configInputs.routerHost.value = cfg.router_host ?? '';
@@ -1907,6 +1977,7 @@ const App = {
         if (this.configInputs.routerPassword) this.configInputs.routerPassword.value = cfg.router_password ?? '';
         if (this.configInputs.listenHost) this.configInputs.listenHost.value = cfg.listen_host ?? '';
         if (this.configInputs.listenPort) this.configInputs.listenPort.value = cfg.listen_port ?? '';
+        this.setPollIntervalControlFromMs(cfg.poll_interval_ms);
     },
 
     toggleConfigLoading(isLoading, pendingLabel = 'Saving...') {
@@ -1922,6 +1993,9 @@ const App = {
     },
 
     startPolling(interval) {
+        const sanitized = Math.max(500, Number(interval) || this.pollIntervalMs || 1000);
+        this.pollIntervalMs = sanitized;
+
         // Clear any existing interval
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
@@ -1935,7 +2009,7 @@ const App = {
                 console.error("Polling error:", error);
                 // Consider adding retry logic or error notification
             }
-        }, interval);
+        }, sanitized);
     }
 };
 

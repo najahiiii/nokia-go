@@ -928,7 +928,21 @@
               />
             </div>
           </div>
-
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-[0.65rem] font-semibold uppercase tracking-wider text-gray-300">
+              <label for="configPollInterval">Polling Interval</label>
+              <span id="configPollIntervalValue" class="text-xs text-[#9ca3af]">1s</span>
+            </div>
+            <input
+              id="configPollInterval"
+              type="range"
+              min="1"
+              max="60"
+              step="1"
+              class="w-full accent-[#3b82f6]"
+            />
+            <p class="text-[0.65rem] text-[#9ca3af]">Controls dashboard refresh cadence. Higher values reduce router load.</p>
+          </div>
           <div class="flex justify-end gap-3 pt-2">
             <button
               type="button"
