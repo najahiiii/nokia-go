@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const resetGracePeriod = 5 * time.Minute
+
 type UsageStats struct {
 	Upload   int64 `json:"upload"`
 	Download int64 `json:"download"`
@@ -23,10 +25,18 @@ type LastStats struct {
 	Total    int64 `json:"total"`
 }
 
+type ResetTracker struct {
+	Upload     int64 `json:"upload"`
+	Download   int64 `json:"download"`
+	ObservedAt int64 `json:"observed_at"`
+	Active     bool  `json:"active"`
+}
+
 type Settings struct {
-	DataExpired int64                 `json:"data_expired"`
-	DailyUsage  map[string]UsageStats `json:"daily_usage"`
-	LastStats   LastStats             `json:"last_stats"`
+	DataExpired  int64                 `json:"data_expired"`
+	DailyUsage   map[string]UsageStats `json:"daily_usage"`
+	LastStats    LastStats             `json:"last_stats"`
+	PendingReset ResetTracker          `json:"pending_reset"`
 }
 
 type Store struct {
@@ -61,6 +71,7 @@ func defaultSettings() Settings {
 			Download: 0,
 			Total:    0,
 		},
+		PendingReset: ResetTracker{},
 	}
 }
 
@@ -111,9 +122,10 @@ func copySettings(src Settings) Settings {
 		copyUsage[k] = v
 	}
 	return Settings{
-		DataExpired: src.DataExpired,
-		DailyUsage:  copyUsage,
-		LastStats:   src.LastStats,
+		DataExpired:  src.DataExpired,
+		DailyUsage:   copyUsage,
+		LastStats:    src.LastStats,
+		PendingReset: src.PendingReset,
 	}
 }
 
@@ -145,25 +157,82 @@ func (s *Store) UpdateUsageFromStatus(status map[string]interface{}) error {
 		currentUpload := toInt64(statEntry["BytesSent"])
 		currentDownload := toInt64(statEntry["BytesReceived"])
 		currentTotal := currentUpload + currentDownload
-		currentDate := time.Now().Format("2006-01-02")
+		now := time.Now()
+		currentDate := now.Format("2006-01-02")
 
 		lastUpload := settings.LastStats.Upload
 		lastDownload := settings.LastStats.Download
-		lastTotal := lastUpload + lastDownload
 
 		uploadDiff := currentUpload - lastUpload
 		downloadDiff := currentDownload - lastDownload
-		totalDiff := currentTotal - lastTotal
+
+		if uploadDiff < 0 || downloadDiff < 0 {
+			settings.PendingReset = ResetTracker{
+				Upload:     lastUpload,
+				Download:   lastDownload,
+				ObservedAt: now.Unix(),
+				Active:     true,
+			}
+			if uploadDiff < 0 {
+				uploadDiff = currentUpload
+			}
+			if downloadDiff < 0 {
+				downloadDiff = currentDownload
+			}
+		}
+
+		if settings.PendingReset.Active {
+			var expired bool
+			if settings.PendingReset.ObservedAt > 0 {
+				observedAt := time.Unix(settings.PendingReset.ObservedAt, 0)
+				expired = now.Sub(observedAt) > resetGracePeriod
+			}
+
+			if expired {
+				settings.PendingReset = ResetTracker{}
+			} else {
+				adjusted := false
+				deactivate := false
+
+				if currentUpload >= settings.PendingReset.Upload {
+					if lastUpload <= settings.PendingReset.Upload/2 {
+						uploadDiff = currentUpload - settings.PendingReset.Upload
+						adjusted = true
+					} else {
+						deactivate = true
+					}
+				}
+
+				if currentDownload >= settings.PendingReset.Download {
+					if lastDownload <= settings.PendingReset.Download/2 {
+						downloadDiff = currentDownload - settings.PendingReset.Download
+						adjusted = true
+					} else {
+						deactivate = true
+					}
+				}
+
+				if adjusted {
+					if uploadDiff < 0 {
+						uploadDiff = 0
+					}
+					if downloadDiff < 0 {
+						downloadDiff = 0
+					}
+					settings.PendingReset = ResetTracker{}
+				} else if deactivate {
+					settings.PendingReset = ResetTracker{}
+				}
+			}
+		}
 
 		if uploadDiff < 0 {
-			uploadDiff = currentUpload
+			uploadDiff = 0
 		}
 		if downloadDiff < 0 {
-			downloadDiff = currentDownload
+			downloadDiff = 0
 		}
-		if totalDiff < 0 {
-			totalDiff = currentTotal
-		}
+		totalDiff := uploadDiff + downloadDiff
 
 		if settings.DailyUsage == nil {
 			settings.DailyUsage = make(map[string]UsageStats)
