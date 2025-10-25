@@ -137,12 +137,20 @@ Running `setup` simply ensures the config file exists by materialising the defau
 
 ## OpenWrt Packages
 
+> [!note]
+> If you skip the key, you must temporarily disable signature checking (`option check_signature 0` in `/etc/opkg.conf`) before running `opkg update`, then restore it afterwards—doing so long-term is **not** advised.
+
 - CI publishes `.ipk` artifacts for OpenWrt v23.05.5 (`aarch64_generic`) to <https://repo.najahi.dev/pkg/nokia-go/>.
 - To track the feed directly from your router:
 
+- (Recommended) enable signature verification for the feed:
+
   ```sh
-  echo "src/gz nokia https://repo.najahi.dev/pkg/nokia-go/aarch64_generic" \
-    | tee /etc/opkg/customfeeds.conf
+  TMP_KEY=/tmp/opkg-nokia-go.pub; curl -fsSL https://repo.najahi.dev/pkg/nokia-go/keys/opkg.pub -o "$TMP_KEY"; opkg-key add "$TMP_KEY"; rm -f "$TMP_KEY"
+  ```
+
+  ```sh
+  echo "src/gz nokia-go https://repo.najahi.dev/pkg/nokia-go/aarch64_generic" >> /etc/opkg/customfeeds.conf
   opkg update
   opkg install luci-app-nokia-go
   ```
