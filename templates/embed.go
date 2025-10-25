@@ -6,13 +6,14 @@ import (
 	"net/http"
 )
 
-//go:embed index.html assets/* script/*
+//go:embed *.html assets/* script/*.min.js
 var content embed.FS
 
 var (
-	indexContent []byte
-	assetsFS     fs.FS
-	scriptFS     fs.FS
+	indexContent  []byte
+	reportContent []byte
+	assetsFS      fs.FS
+	scriptFS      fs.FS
 )
 
 func init() {
@@ -20,6 +21,11 @@ func init() {
 	indexContent, err = content.ReadFile("index.html")
 	if err != nil {
 		panic("failed to read embedded index.html: " + err.Error())
+	}
+
+	reportContent, err = content.ReadFile("report.html")
+	if err != nil {
+		panic("failed to read embedded report.html: " + err.Error())
 	}
 
 	assetsFS, err = fs.Sub(content, "assets")
@@ -36,6 +42,11 @@ func init() {
 // Index returns the embedded index.html content.
 func Index() []byte {
 	return indexContent
+}
+
+// Report returns the embedded usage report page.
+func Report() []byte {
+	return reportContent
 }
 
 // Assets returns an http.FileSystem serving embedded assets.

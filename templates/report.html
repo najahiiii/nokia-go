@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <link rel="icon" type="image/x-icon" href="assets/favicon.ico" />
+
+    <title>Nokia Fastmile 5G Gateway 2 · Data Usage Report</title>
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/assets/app.css" />
+    <style>
+      body {
+        background-color: #111111;
+        color: #f4f4f4;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="border-b border-[#222] bg-[#181818]">
+      <div
+        class="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4"
+      >
+        <div>
+          <h1 class="text-lg font-semibold">Data Usage Report</h1>
+          <p class="text-xs text-gray-400">
+            Historical upload, download, and total usage per day.
+          </p>
+        </div>
+        <nav>
+          <a
+            href="/"
+            class="text-sm font-semibold text-blue-400 transition hover:text-blue-300"
+            >Back to dashboard</a
+          >
+        </nav>
+      </div>
+    </header>
+
+    <main class="flex-1">
+      <div class="mx-auto w-full max-w-5xl px-4 py-8">
+        <section
+          id="reportSummary"
+          class="mb-6 grid gap-4 rounded-xl border border-[#2a2a2a] bg-[#1c1c1c] p-5 text-sm text-gray-200 md:grid-cols-3"
+        >
+          <div>
+            <p class="text-xs uppercase tracking-wide text-gray-500">Period</p>
+            <p id="reportPeriod" class="mt-1 font-semibold">—</p>
+          </div>
+          <div>
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              Total Download
+            </p>
+            <p
+              id="reportTotalDownload"
+              class="mt-1 font-semibold text-blue-300"
+            >
+              0 B
+            </p>
+          </div>
+          <div>
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              Total Upload
+            </p>
+            <p id="reportTotalUpload" class="mt-1 font-semibold text-green-300">
+              0 B
+            </p>
+          </div>
+        </section>
+
+        <section
+          class="overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1c1c1c]"
+        >
+          <div class="overflow-x-auto">
+            <table
+              class="min-w-full divide-y divide-[#2f2f2f] text-sm text-gray-100"
+            >
+              <thead
+                class="bg-[#232323] text-xs uppercase tracking-wider text-gray-400"
+              >
+                <tr>
+                  <th scope="col" class="px-4 py-3 text-left">Date</th>
+                  <th scope="col" class="px-4 py-3 text-right">Download</th>
+                  <th scope="col" class="px-4 py-3 text-right">Upload</th>
+                  <th scope="col" class="px-4 py-3 text-right">Total</th>
+                  <th scope="col" class="px-4 py-3 text-right">Share</th>
+                </tr>
+              </thead>
+              <tbody
+                id="usageReportTableBody"
+                class="divide-y divide-[#2b2b2b]"
+              >
+                <tr id="usageReportLoading">
+                  <td
+                    colspan="5"
+                    class="px-4 py-6 text-center text-xs text-gray-400"
+                  >
+                    Loading usage history…
+                  </td>
+                </tr>
+                <tr id="usageReportEmpty" class="hidden">
+                  <td
+                    colspan="5"
+                    class="px-4 py-6 text-center text-xs text-gray-400"
+                  >
+                    Usage history is not available yet. Check back after data
+                    has been collected.
+                  </td>
+                </tr>
+                <tr id="usageReportError" class="hidden">
+                  <td
+                    colspan="5"
+                    class="px-4 py-6 text-center text-xs text-red-400"
+                  >
+                    Unable to load usage history. Please refresh the page to try
+                    again.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="border-t border-[#222] bg-[#181818] py-4">
+      <div
+        class="mx-auto flex w-full max-w-5xl items-center justify-between px-4 text-xs text-gray-500"
+      >
+        <span
+          >&copy; <span id="currentYear"></span> Nokia Router Dashboard</span
+        >
+        <span
+          >Data refreshes every poll cycle configured on the main
+          dashboard.</span
+        >
+      </div>
+    </footer>
+
+    <script src="/script/usage-report.min.js" type="module"></script>
+  </body>
+</html>

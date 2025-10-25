@@ -288,7 +288,16 @@
           aria-labelledby="celluler-title"
           class="bg-[#282828] rounded-xl p-6 shadow-none max-h-[450px] overflow-y-auto"
         >
-          <h2 id="dataUsage" class="font-semibold text-sm mb-3">Data Usage</h2>
+          <div class="flex items-center justify-between mb-3 gap-3">
+            <h2 id="dataUsage" class="font-semibold text-sm">Data Usage</h2>
+            <a
+              id="usageReportTrigger"
+              href="/report"
+              class="text-xs font-semibold text-blue-400 hover:text-blue-300 transition"
+            >
+              View report
+            </a>
+          </div>
           <div class="flex justify-between py-1">
             <span class="font-semibold text-xs">Download</span>
             <span class="font-semibold text-xs" id="cellTotalDl"></span>
@@ -929,9 +938,13 @@
             </div>
           </div>
           <div class="space-y-2">
-            <div class="flex items-center justify-between text-[0.65rem] font-semibold uppercase tracking-wider text-gray-300">
+            <div
+              class="flex items-center justify-between text-[0.65rem] font-semibold uppercase tracking-wider text-gray-300"
+            >
               <label for="configPollInterval">Polling Interval</label>
-              <span id="configPollIntervalValue" class="text-xs text-[#9ca3af]">1s</span>
+              <span id="configPollIntervalValue" class="text-xs text-[#9ca3af]"
+                >1s</span
+              >
             </div>
             <input
               id="configPollInterval"
@@ -941,7 +954,10 @@
               step="1"
               class="w-full accent-[#3b82f6]"
             />
-            <p class="text-[0.65rem] text-[#9ca3af]">Controls dashboard refresh cadence. Higher values reduce router load.</p>
+            <p class="text-[0.65rem] text-[#9ca3af]">
+              Controls dashboard refresh cadence. Higher values reduce router
+              load.
+            </p>
           </div>
           <div class="flex justify-end gap-3 pt-2">
             <button

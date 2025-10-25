@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build:css": "tailwindcss -c tailwind.config.js -i tailwind.css -o templates/assets/tailwind.css --minify",
-    "build:js": "esbuild templates/script/nokia.js --minify --format=iife --global-name=NokiaApp --outfile=templates/script/nokia.min.js && esbuild templates/script/tabs.js --minify --format=iife --global-name=NokiaTabs --outfile=templates/script/tabs.min.js"
+    "build:js": "esbuild templates/script/nokia.js --minify --format=iife --global-name=NokiaApp --outfile=templates/script/nokia.min.js && esbuild templates/script/tabs.js --minify --format=iife --global-name=NokiaTabs --outfile=templates/script/tabs.min.js && esbuild templates/script/usage-report.js --minify --format=iife --global-name=NokiaReport --outfile=templates/script/usage-report.min.js"
   },
   "keywords": [],
   "author": "Ahmad Thoriq Najahi",

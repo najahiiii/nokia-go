@@ -899,6 +899,7 @@ const App = {
     async loadDailyUsage() {
         const cellIdentity = await API.getCellularIdentity();
         const dailyUsage = await API.getFormattedDailyUsage();
+        this.dailyUsageData = dailyUsage;
         DOM.updateCellularIdentity(cellIdentity);
         DOM.renderDailyUsageChart(dailyUsage);
         document.getElementById('cellTotalDl').textContent = dailyUsage?.last_7_days?.[0]?.download?.formatted || '0 B';

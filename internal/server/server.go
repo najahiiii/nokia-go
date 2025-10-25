@@ -83,6 +83,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", s.handleHome)
+	mux.HandleFunc("/report", s.handleUsageReport)
 	mux.Handle("/script/", http.StripPrefix("/script/", http.FileServer(webtpl.Scripts())))
 	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(webtpl.Assets())))
 
@@ -121,6 +122,17 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := w.Write(webtpl.Index()); err != nil {
 		s.logger.Printf("failed to write index.html: %v", err)
+	}
+}
+
+func (s *Server) handleUsageReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := w.Write(webtpl.Report()); err != nil {
+		s.logger.Printf("failed to write report.html: %v", err)
 	}
 }
 
