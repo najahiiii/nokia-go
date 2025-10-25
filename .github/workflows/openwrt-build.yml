@@ -2,12 +2,8 @@ name: Build OpenWrt Package
 
 on:
   push:
-    branches: [main]
-    paths-ignore:
-      - "*.md"
-      - "README.md"
-      - "NOTICE"
-      - "LICENSE"
+    paths:
+      - VERSION
   workflow_dispatch:
 
 jobs:
