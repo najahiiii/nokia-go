@@ -6,10 +6,14 @@ GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 GIT_DIRTY := $(shell test -n "$$(git status --porcelain 2>/dev/null)" && echo true || echo false)
 LDFLAGS := -s -w -X main.appVersion=$(VERSION) -X main.gitCommit=$(GIT_COMMIT) -X main.gitDirty=$(GIT_DIRTY)
 
+WEB_DIR := ./web-ui
+NEXT_BUILD_DIR := $(WEB_DIR)/out
+NEXT_DIST_DIR := ./templates/web
+
 LINUX_AMD64_BIN := $(BUILD_DIR)/$(PROJECT_NAME)-linux-amd64
 LINUX_ARM64_BIN := $(BUILD_DIR)/$(PROJECT_NAME)-linux-arm64
 
-.PHONY: all clean linux linux-amd64 linux-arm64 compress-linux-amd64 compress-linux-arm64
+.PHONY: all clean linux linux-amd64 linux-arm64 compress-linux-amd64 compress-linux-arm64 next-build next-copy next
 
 all: clean linux
 
@@ -39,3 +43,13 @@ compress-linux-arm64: $(LINUX_ARM64_BIN)
 
 clean:
 	@rm -rf $(BUILD_DIR)
+
+next-build:
+	npm --prefix $(WEB_DIR) run build
+
+next-copy: next-build
+	rm -rf $(NEXT_DIST_DIR)
+	@mkdir -p $(NEXT_DIST_DIR)
+	cp -a $(NEXT_BUILD_DIR)/* $(NEXT_DIST_DIR)/
+
+next: next-copy

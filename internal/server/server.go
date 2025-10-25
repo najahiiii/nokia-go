@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -82,11 +83,6 @@ func (s *Server) Config() config.Config {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/", s.handleHome)
-	mux.HandleFunc("/report", s.handleUsageReport)
-	mux.Handle("/script/", http.StripPrefix("/script/", http.FileServer(webtpl.Scripts())))
-	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(webtpl.Assets())))
-
 	mux.HandleFunc("/api/daily_usage", s.handleDailyUsage)
 	mux.HandleFunc("/api/get_data_expired", s.handleGetDataExpired)
 	mux.HandleFunc("/api/set_data_expired", s.handleSetDataExpired)
@@ -111,28 +107,41 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/config/listener_available", s.handleConfigListenerCheck)
 	mux.HandleFunc("/api/config", s.handleConfig)
 
+	mux.Handle("/_next/", http.StripPrefix("/_next/", http.FileServer(webtpl.NextStatic())))
+	mux.HandleFunc("/", s.handleNextApp)
+
 	return corsMiddleware(mux)
 }
 
-func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+func (s *Server) handleNextApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write(webtpl.Index()); err != nil {
-		s.logger.Printf("failed to write index.html: %v", err)
-	}
-}
 
-func (s *Server) handleUsageReport(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	requestPath := strings.Trim(r.URL.Path, "/")
+	if requestPath == "" {
+		requestPath = "index"
+	}
+
+	data, err := webtpl.NextPage(requestPath)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			w.WriteHeader(http.StatusNotFound)
+			if page404, perr := webtpl.NextPage("404"); perr == nil {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = w.Write(page404)
+			}
+			return
+		}
+		s.logger.Printf("failed to render next page %q: %v", requestPath, err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if _, err := w.Write(webtpl.Report()); err != nil {
-		s.logger.Printf("failed to write report.html: %v", err)
+	if _, err := w.Write(data); err != nil {
+		s.logger.Printf("failed to write next page %q: %v", requestPath, err)
 	}
 }
 

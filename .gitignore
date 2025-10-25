@@ -38,3 +38,6 @@ dist
 
 # Test
 cmd/debug
+
+# Private
+web-ui

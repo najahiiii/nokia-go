@@ -4,57 +4,62 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"path"
+	"strings"
 )
 
-//go:embed *.html assets/* script/*.min.js
+//go:embed web/**
 var content embed.FS
 
 var (
-	indexContent  []byte
-	reportContent []byte
-	assetsFS      fs.FS
-	scriptFS      fs.FS
+	nextIndex    []byte
+	nextFS       fs.FS
+	nextStaticFS fs.FS
 )
 
 func init() {
 	var err error
-	indexContent, err = content.ReadFile("index.html")
+
+	nextFS, err = fs.Sub(content, "web")
 	if err != nil {
-		panic("failed to read embedded index.html: " + err.Error())
+		panic("failed to load embedded next build: " + err.Error())
 	}
 
-	reportContent, err = content.ReadFile("report.html")
+	nextStaticFS, err = fs.Sub(nextFS, "_next")
 	if err != nil {
-		panic("failed to read embedded report.html: " + err.Error())
+		panic("failed to locate _next assets: " + err.Error())
 	}
 
-	assetsFS, err = fs.Sub(content, "assets")
+	nextIndex, err = NextPage("index")
 	if err != nil {
-		panic("failed to load embedded assets: " + err.Error())
-	}
-
-	scriptFS, err = fs.Sub(content, "script")
-	if err != nil {
-		panic("failed to load embedded scripts: " + err.Error())
+		panic("failed to read embedded next index.html: " + err.Error())
 	}
 }
 
-// Index returns the embedded index.html content.
-func Index() []byte {
-	return indexContent
+// NextIndex returns the embedded Next.js index page.
+func NextIndex() []byte {
+	return nextIndex
 }
 
-// Report returns the embedded usage report page.
-func Report() []byte {
-	return reportContent
+// Next returns an http.FileSystem serving the Next.js exported assets.
+func Next() http.FileSystem {
+	return http.FS(nextFS)
 }
 
-// Assets returns an http.FileSystem serving embedded assets.
-func Assets() http.FileSystem {
-	return http.FS(assetsFS)
+// NextStatic returns an http.FileSystem serving the Next.js static assets under _next/.
+func NextStatic() http.FileSystem {
+	return http.FS(nextStaticFS)
 }
 
-// Scripts returns an http.FileSystem serving embedded scripts.
-func Scripts() http.FileSystem {
-	return http.FS(scriptFS)
+// NextPage returns the rendered HTML file for a given Next.js route name.
+// The name can be provided with or without a ".html" suffix or leading slash.
+func NextPage(name string) ([]byte, error) {
+	trimmed := strings.Trim(strings.TrimSpace(name), "/")
+	if trimmed == "" {
+		trimmed = "index"
+	}
+	if !strings.HasSuffix(trimmed, ".html") {
+		trimmed += ".html"
+	}
+	return content.ReadFile(path.Join("web", trimmed))
 }
