@@ -21,6 +21,7 @@
 - WAN IP renewal workflow that cycles APN profiles until a new public IP is observed, complete with progress/error toasts.
 - Router reboot command exposed in the dashboard with non-blocking notifications tracking success or failure.
 - In-browser configuration editor with live validation, toast notifications, and automatic service reload on save.
+- Adjustable polling interval slider that tunes dashboard refresh cadence while persisting to config.
 - Configuration writes persist to `config.json`; the server hot-reloads listener host/port without restarts and mirrors CLI overrides (flags/env vars).
 
 ## API Endpoints
@@ -55,8 +56,8 @@
 
 - Copy `config.example.json` to `config.json` and adjust values.
 - Command line flag `-config` selects alternate file.
-- Environment variables (`ROUTER_HOSTNAME`, `ROUTER_USERNAME`, `ROUTER_PASSWORD`, `HOST`, `PORT`) override config fields.
-- Defaults applied if still unspecified: host `192.168.0.1`, user `admin`, password `6fa6e262c3`, listen `0.0.0.0:5000`.
+- Environment variables (`ROUTER_HOSTNAME`, `ROUTER_USERNAME`, `ROUTER_PASSWORD`, `HOST`, `PORT`, `POLL_INTERVAL_MS`) override config fields.
+- Defaults applied if still unspecified: host `192.168.0.1`, user `admin`, password `6fa6e262c3`, listen `0.0.0.0:5000`, polling interval `1000` ms.
 
 ## Build
 
@@ -116,6 +117,7 @@ The application merges configuration from multiple sources in this order:
    - `ROUTER_PASSWORD`
    - `HOST` (HTTP listen address)
    - `PORT` (HTTP listen port)
+   - `POLL_INTERVAL_MS` (dashboard refresh cadence, minimum 1000 ms)
 4. **Fallback cleanup**: after merge we ensure every field is populated—if any value ends up blank it is replaced by the default again.
 Running `setup` simply ensures the config file exists by materialising the defaults on disk (without overriding existing values). Subsequent edits—either manual or via the web UI—will be picked up the next time you invoke `run`, and the UI hot-reloads the service after each save.
 
