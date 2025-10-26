@@ -30,8 +30,8 @@ go.work.sum
 config.json
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
 
 # Dist file
 dist
