@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
@@ -41,19 +42,35 @@ type Server struct {
 	logger     *log.Logger
 	httpClient *http.Client
 
+	smsArchive *smsArchive
+
+	pollerMu            sync.Mutex
+	pollerCancel        context.CancelFunc
+	pollerWG            sync.WaitGroup
+	smsForwardingActive bool
+
 	reloadFn func(config.Config)
 }
 
 func New(client *router.Client, store *settings.Store, cfgPath string, cfg config.Config, reloadFn func(config.Config)) *Server {
-	return &Server{
+	smsPath := "sms.json"
+	if trimmed := strings.TrimSpace(cfgPath); trimmed != "" {
+		smsPath = filepath.Join(filepath.Dir(trimmed), "sms.json")
+	}
+
+	srv := &Server{
 		client:     client,
 		cfgPath:    cfgPath,
 		cfg:        cfg,
 		store:      store,
 		logger:     log.New(os.Stdout, "[server] ", log.LstdFlags),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
+		smsArchive: newSmsArchive(smsPath),
 		reloadFn:   reloadFn,
 	}
+
+	srv.configureSmsForwarding(cfg)
+	return srv
 }
 
 func (s *Server) getClient() *router.Client {
@@ -826,6 +843,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 		s.setConfig(updated)
 		s.setClient(router.NewClient(updated))
+		s.configureSmsForwarding(updated)
 		s.logger.Printf("Configuration updated at %s", s.cfgPath)
 
 		if s.reloadFn != nil {
@@ -858,6 +876,11 @@ func normalizeConfig(cfg config.Config) config.Config {
 			ChatID:    strings.TrimSpace(cfg.Telegram.ChatID),
 			ParseMode: strings.TrimSpace(cfg.Telegram.ParseMode),
 		},
+		LongPolling: config.LongPollingConfig{
+			Enabled:              cfg.LongPolling.Enabled,
+			ForwardSmsToTelegram: cfg.LongPolling.ForwardSmsToTelegram,
+			IntervalSeconds:      cfg.LongPolling.IntervalSeconds,
+		},
 	}
 
 	if normalized.RouterHost == "" {
@@ -880,6 +903,9 @@ func normalizeConfig(cfg config.Config) config.Config {
 	}
 	if strings.TrimSpace(normalized.Telegram.APIBase) == "" {
 		normalized.Telegram.APIBase = defaults.Telegram.APIBase
+	}
+	if normalized.LongPolling.IntervalSeconds < 5 {
+		normalized.LongPolling.IntervalSeconds = defaults.LongPolling.IntervalSeconds
 	}
 
 	return normalized

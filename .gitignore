@@ -36,6 +36,9 @@ config.json
 # Dist file
 dist
 
+# Build file
+bin
+
 # Test
 cmd/debug
 

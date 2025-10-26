@@ -10,5 +10,10 @@
     "bot_token": "",
     "chat_id": "",
     "parse_mode": ""
+  },
+  "long_polling": {
+    "enabled": false,
+    "forward_sms_to_telegram": false,
+    "interval_seconds": 10
   }
 }

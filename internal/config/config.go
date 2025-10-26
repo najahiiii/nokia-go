@@ -12,13 +12,14 @@ import (
 // Config holds application configuration values. All fields are optional;
 // fallbacks are applied when fields are empty.
 type Config struct {
-	RouterHost     string         `json:"router_host"`
-	RouterUser     string         `json:"router_user"`
-	RouterPassword string         `json:"router_password"`
-	ListenHost     string         `json:"listen_host"`
-	ListenPort     string         `json:"listen_port"`
-	PollIntervalMs int            `json:"poll_interval_ms"`
-	Telegram       TelegramConfig `json:"telegram"`
+	RouterHost     string            `json:"router_host"`
+	RouterUser     string            `json:"router_user"`
+	RouterPassword string            `json:"router_password"`
+	ListenHost     string            `json:"listen_host"`
+	ListenPort     string            `json:"listen_port"`
+	PollIntervalMs int               `json:"poll_interval_ms"`
+	Telegram       TelegramConfig    `json:"telegram"`
+	LongPolling    LongPollingConfig `json:"long_polling"`
 }
 
 type TelegramConfig struct {
@@ -27,6 +28,12 @@ type TelegramConfig struct {
 	BotToken  string `json:"bot_token"`
 	ChatID    string `json:"chat_id"`
 	ParseMode string `json:"parse_mode"`
+}
+
+type LongPollingConfig struct {
+	Enabled              bool `json:"enabled"`
+	ForwardSmsToTelegram bool `json:"forward_sms_to_telegram"`
+	IntervalSeconds      int  `json:"interval_seconds"`
 }
 
 // Defaults provides safe defaults when nothing else is configured.
@@ -44,6 +51,11 @@ func Defaults() Config {
 			BotToken:  "",
 			ChatID:    "",
 			ParseMode: "",
+		},
+		LongPolling: LongPollingConfig{
+			Enabled:              false,
+			ForwardSmsToTelegram: false,
+			IntervalSeconds:      10,
 		},
 	}
 }
@@ -116,6 +128,17 @@ func applyEnvOverrides(cfg *Config) {
 	if v := strings.TrimSpace(os.Getenv("TELEGRAM_PARSE_MODE")); v != "" {
 		cfg.Telegram.ParseMode = v
 	}
+	if v := strings.TrimSpace(os.Getenv("LONG_POLLING_ENABLED")); v != "" {
+		cfg.LongPolling.Enabled = parseBool(v, cfg.LongPolling.Enabled)
+	}
+	if v := strings.TrimSpace(os.Getenv("LONG_POLLING_FORWARD_SMS_TO_TELEGRAM")); v != "" {
+		cfg.LongPolling.ForwardSmsToTelegram = parseBool(v, cfg.LongPolling.ForwardSmsToTelegram)
+	}
+	if v := strings.TrimSpace(os.Getenv("LONG_POLLING_INTERVAL_SECONDS")); v != "" {
+		if seconds, err := strconv.Atoi(v); err == nil {
+			cfg.LongPolling.IntervalSeconds = seconds
+		}
+	}
 }
 
 func ensureDefaults(cfg *Config) {
@@ -144,6 +167,9 @@ func ensureDefaults(cfg *Config) {
 	}
 	if strings.TrimSpace(cfg.Telegram.ParseMode) == "" {
 		cfg.Telegram.ParseMode = defaults.Telegram.ParseMode
+	}
+	if cfg.LongPolling.IntervalSeconds <= 0 {
+		cfg.LongPolling.IntervalSeconds = defaults.LongPolling.IntervalSeconds
 	}
 }
 
