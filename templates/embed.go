@@ -55,11 +55,25 @@ func NextStatic() http.FileSystem {
 // The name can be provided with or without a ".html" suffix or leading slash.
 func NextPage(name string) ([]byte, error) {
 	trimmed := strings.Trim(strings.TrimSpace(name), "/")
-	if trimmed == "" {
-		trimmed = "index"
+	switch {
+	case trimmed == "":
+		trimmed = "index.html"
+	case strings.HasSuffix(trimmed, "/"):
+		trimmed = strings.TrimSuffix(trimmed, "/") + "/index.html"
+	default:
+		if !strings.Contains(path.Base(trimmed), ".") {
+			trimmed += ".html"
+		}
 	}
-	if !strings.HasSuffix(trimmed, ".html") {
-		trimmed += ".html"
+	return NextFile(trimmed)
+}
+
+// NextFile returns the embedded asset content for a given path relative to the exported Next build.
+func NextFile(name string) ([]byte, error) {
+	clean := path.Clean("/" + name)
+	clean = strings.TrimPrefix(clean, "/")
+	if clean == "" {
+		clean = "index.html"
 	}
-	return content.ReadFile(path.Join("web", trimmed))
+	return content.ReadFile(path.Join("web", clean))
 }

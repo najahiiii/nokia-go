@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"runtime"
 	"slices"
 	"sort"
@@ -111,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/config/listener_available", s.handleConfigListenerCheck)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/telegram/send", s.handleTelegramSend)
+	mux.HandleFunc("/favicon.ico", s.handleFavicon)
 
 	mux.Handle("/_next/", http.StripPrefix("/_next/", http.FileServer(webtpl.NextStatic())))
 	mux.HandleFunc("/", s.handleNextApp)
@@ -125,9 +127,14 @@ func (s *Server) handleNextApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestPath := strings.Trim(r.URL.Path, "/")
-	if requestPath == "" {
+	switch {
+	case requestPath == "":
 		requestPath = "index"
+	case strings.HasSuffix(r.URL.Path, "/"):
+		requestPath = strings.Trim(r.URL.Path, "/") + "/index"
 	}
+	requestPath = path.Clean(requestPath)
+	requestPath = strings.TrimPrefix(requestPath, "../")
 
 	data, err := webtpl.NextPage(requestPath)
 	if err != nil {
@@ -147,6 +154,34 @@ func (s *Server) handleNextApp(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := w.Write(data); err != nil {
 		s.logger.Printf("failed to write next page %q: %v", requestPath, err)
+	}
+}
+
+func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	data, err := webtpl.NextFile("favicon.ico")
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
+		s.logger.Printf("failed to load favicon: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/x-icon")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	if r.Method == http.MethodHead {
+		return
+	}
+
+	if _, err := w.Write(data); err != nil {
+		s.logger.Printf("failed to write favicon: %v", err)
 	}
 }
 
