@@ -13,7 +13,7 @@ NEXT_DIST_DIR := ./templates/web
 LINUX_AMD64_BIN := $(BUILD_DIR)/$(PROJECT_NAME)-linux-amd64
 LINUX_ARM64_BIN := $(BUILD_DIR)/$(PROJECT_NAME)-linux-arm64
 
-.PHONY: all clean linux linux-amd64 linux-arm64 compress-linux-amd64 compress-linux-arm64 next-setup next-build next-copy next
+.PHONY: all clean linux linux-amd64 linux-arm64 compress-linux-amd64 compress-linux-arm64 next-setup next-build next-copy next dev
 
 all: clean linux
 
@@ -70,6 +70,14 @@ next-copy: next-build
 next:
 	@if [ -d "$(WEB_DIR)" ]; then \
 		$(MAKE) next-copy; \
+	else \
+		echo "Skipping $@; $(WEB_DIR) not found."; \
+	fi
+
+dev:
+	@if [ -d "$(WEB_DIR)" ]; then \
+		$(MAKE) next; \
+		$(MAKE) all; \
 	else \
 		echo "Skipping $@; $(WEB_DIR) not found."; \
 	fi
