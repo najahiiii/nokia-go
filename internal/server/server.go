@@ -24,10 +24,10 @@ import (
 	"time"
 	"unicode"
 
-	"nokia_router/internal/config"
-	"nokia_router/internal/router"
-	"nokia_router/internal/settings"
-	webtpl "nokia_router/templates"
+	"nokia_modem/internal/config"
+	"nokia_modem/internal/router"
+	"nokia_modem/internal/settings"
+	webtpl "nokia_modem/templates"
 )
 
 type Server struct {

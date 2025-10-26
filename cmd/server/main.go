@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"nokia_router/internal/config"
-	"nokia_router/internal/router"
-	"nokia_router/internal/server"
-	"nokia_router/internal/settings"
+	"nokia_modem/internal/config"
+	"nokia_modem/internal/router"
+	"nokia_modem/internal/server"
+	"nokia_modem/internal/settings"
 )
 
 var appVersion = "dev"

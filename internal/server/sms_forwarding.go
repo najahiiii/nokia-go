@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"nokia_router/internal/config"
+	"nokia_modem/internal/config"
 )
 
 type smsMessage struct {
