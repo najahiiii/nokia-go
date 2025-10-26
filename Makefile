@@ -13,7 +13,7 @@ NEXT_DIST_DIR := ./templates/web
 LINUX_AMD64_BIN := $(BUILD_DIR)/$(PROJECT_NAME)-linux-amd64
 LINUX_ARM64_BIN := $(BUILD_DIR)/$(PROJECT_NAME)-linux-arm64
 
-.PHONY: all clean linux linux-amd64 linux-arm64 compress-linux-amd64 compress-linux-arm64 next-build next-copy next
+.PHONY: all clean linux linux-amd64 linux-arm64 compress-linux-amd64 compress-linux-arm64 next-setup next-build next-copy next
 
 all: clean linux
 
@@ -44,12 +44,32 @@ compress-linux-arm64: $(LINUX_ARM64_BIN)
 clean:
 	@rm -rf $(BUILD_DIR)
 
+next-setup:
+	@if [ -d "$(WEB_DIR)" ]; then \
+		npm --prefix $(WEB_DIR) install; \
+	else \
+		echo "Skipping $@; $(WEB_DIR) not found."; \
+	fi
+
 next-build:
-	npm --prefix $(WEB_DIR) run build
+	@if [ -d "$(WEB_DIR)" ]; then \
+		npm --prefix $(WEB_DIR) run build; \
+	else \
+		echo "Skipping $@; $(WEB_DIR) not found."; \
+	fi
 
 next-copy: next-build
-	rm -rf $(NEXT_DIST_DIR)
-	@mkdir -p $(NEXT_DIST_DIR)
-	cp -a $(NEXT_BUILD_DIR)/* $(NEXT_DIST_DIR)/
+	@if [ -d "$(WEB_DIR)" ]; then \
+		rm -rf $(NEXT_DIST_DIR); \
+		mkdir -p $(NEXT_DIST_DIR); \
+		cp -a $(NEXT_BUILD_DIR)/* $(NEXT_DIST_DIR)/; \
+	else \
+		echo "Skipping $@; $(WEB_DIR) not found."; \
+	fi
 
-next: next-copy
+next:
+	@if [ -d "$(WEB_DIR)" ]; then \
+		$(MAKE) next-copy; \
+	else \
+		echo "Skipping $@; $(WEB_DIR) not found."; \
+	fi
