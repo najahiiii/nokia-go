@@ -27,7 +27,10 @@ import (
 	"nokia_modem/internal/config"
 	"nokia_modem/internal/router"
 	"nokia_modem/internal/settings"
+
 	webtpl "nokia_modem/templates"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 type Server struct {
@@ -49,8 +52,15 @@ type Server struct {
 	pollerWG            sync.WaitGroup
 	smsForwardingActive bool
 
+	mqttMu        sync.Mutex
+	mqttClient    mqtt.Client
+	mqttTopicBase string
+	mqttCfg       config.MQTTConfig
+
 	reloadFn func(config.Config)
 }
+
+var errMqttDisabled = errors.New("mqtt disabled")
 
 func New(client *router.Client, store *settings.Store, cfgPath string, cfg config.Config, reloadFn func(config.Config)) *Server {
 	smsPath := "sms.json"
@@ -137,6 +147,325 @@ func (s *Server) Handler() http.Handler {
 	return corsMiddleware(mux)
 }
 
+func mqttConfigsEqual(a, b config.MQTTConfig) bool {
+	return a.Enabled == b.Enabled &&
+		strings.TrimSpace(a.Broker) == strings.TrimSpace(b.Broker) &&
+		strings.TrimSpace(a.ClientID) == strings.TrimSpace(b.ClientID) &&
+		strings.TrimSpace(a.Username) == strings.TrimSpace(b.Username) &&
+		strings.TrimSpace(a.Password) == strings.TrimSpace(b.Password) &&
+		strings.TrimSpace(a.TopicBase) == strings.TrimSpace(b.TopicBase)
+}
+
+func (s *Server) configureMqtt(cfg config.Config) {
+	s.mqttMu.Lock()
+	defer s.mqttMu.Unlock()
+
+	shouldConnect := cfg.LongPolling.Enabled && cfg.MQTT.Enabled
+	topicBase := strings.Trim(strings.TrimSpace(cfg.MQTT.TopicBase), "/")
+	if topicBase == "" {
+		topicBase = "modem/nokia"
+	}
+
+	if !shouldConnect {
+		if s.mqttClient != nil {
+			s.mqttClient.Disconnect(250)
+			s.logger.Printf("mqtt: disconnected")
+			s.mqttClient = nil
+		}
+		s.mqttTopicBase = ""
+		s.mqttCfg = config.MQTTConfig{}
+		return
+	}
+
+	if s.mqttClient != nil && mqttConfigsEqual(s.mqttCfg, cfg.MQTT) {
+		s.mqttTopicBase = topicBase
+		if s.mqttClient.IsConnected() {
+			return
+		}
+	}
+
+	if s.mqttClient != nil {
+		s.mqttClient.Disconnect(250)
+		s.mqttClient = nil
+	}
+
+	broker := strings.TrimSpace(cfg.MQTT.Broker)
+	if broker == "" {
+		s.logger.Printf("mqtt: broker not configured, skipping connection")
+		s.mqttTopicBase = ""
+		s.mqttCfg = cfg.MQTT
+		return
+	}
+
+	opts := mqtt.NewClientOptions()
+	opts.AddBroker(broker)
+
+	clientID := strings.TrimSpace(cfg.MQTT.ClientID)
+	if clientID == "" {
+		clientID = fmt.Sprintf("nokia-router-%d", time.Now().UnixNano())
+	}
+	opts.SetClientID(clientID)
+	opts.SetAutoReconnect(true)
+	opts.SetConnectRetry(true)
+	opts.SetConnectRetryInterval(5 * time.Second)
+	opts.SetCleanSession(true)
+	opts.SetKeepAlive(30 * time.Second)
+	opts.SetWriteTimeout(5 * time.Second)
+
+	username := strings.TrimSpace(cfg.MQTT.Username)
+	if username != "" {
+		opts.SetUsername(username)
+		opts.SetPassword(cfg.MQTT.Password)
+	}
+
+	opts.OnConnect = func(c mqtt.Client) {
+		s.logger.Printf("mqtt: connected to %s", broker)
+		s.subscribeMqttApn(c, topicBase)
+	}
+	opts.OnConnectionLost = func(c mqtt.Client, err error) {
+		s.logger.Printf("mqtt: connection lost: %v", err)
+	}
+
+	client := mqtt.NewClient(opts)
+	token := client.Connect()
+	if !token.WaitTimeout(10 * time.Second) {
+		s.logger.Printf("mqtt: connect timeout to %s", broker)
+	} else if err := token.Error(); err != nil {
+		s.logger.Printf("mqtt: connect failed: %v", err)
+	}
+
+	s.mqttClient = client
+	s.mqttTopicBase = topicBase
+	s.mqttCfg = cfg.MQTT
+}
+
+func (s *Server) publishMqtt(topic string, payload interface{}) error {
+	s.mqttMu.Lock()
+	client := s.mqttClient
+	base := s.mqttTopicBase
+	s.mqttMu.Unlock()
+
+	if client == nil {
+		return errMqttDisabled
+	}
+
+	segment := strings.Trim(strings.TrimSpace(topic), "/")
+	fullTopic := strings.Trim(base, "/")
+	if fullTopic != "" && segment != "" {
+		fullTopic = fullTopic + "/" + segment
+	} else if segment != "" {
+		fullTopic = segment
+	}
+	if fullTopic == "" {
+		return errors.New("mqtt topic unresolved")
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("encode mqtt payload: %w", err)
+	}
+
+	retain := fullTopic == "sms" || strings.HasSuffix(fullTopic, "/sms")
+	token := client.Publish(fullTopic, 1, retain, data)
+	if !token.WaitTimeout(5 * time.Second) {
+		return errors.New("mqtt publish timeout")
+	}
+	if err := token.Error(); err != nil {
+		return fmt.Errorf("mqtt publish failed: %w", err)
+	}
+	return nil
+}
+
+func (s *Server) subscribeMqttApn(client mqtt.Client, base string) {
+	trimmed := strings.Trim(strings.TrimSpace(base), "/")
+
+	topics := []string{}
+	if trimmed == "" {
+		topics = append(topics, "apn", "+/apn")
+	} else {
+		topics = append(topics, trimmed+"/apn", trimmed+"/+/apn")
+	}
+
+	seen := make(map[string]struct{}, len(topics))
+	for _, topic := range topics {
+		topic = strings.TrimSpace(topic)
+		if topic == "" {
+			continue
+		}
+		if _, ok := seen[topic]; ok {
+			continue
+		}
+		seen[topic] = struct{}{}
+
+		token := client.Subscribe(topic, 1, func(c mqtt.Client, msg mqtt.Message) {
+			payload := strings.TrimSpace(string(msg.Payload()))
+			if payload == "" {
+				return
+			}
+			go s.handleMqttApnCommand(msg.Topic(), payload)
+		})
+
+		if !token.WaitTimeout(5 * time.Second) {
+			s.logger.Printf("mqtt: subscribe timeout for %s", topic)
+			continue
+		}
+		if err := token.Error(); err != nil {
+			s.logger.Printf("mqtt: subscribe %s failed: %v", topic, err)
+			continue
+		}
+		s.logger.Printf("mqtt: subscribed to %s", topic)
+	}
+}
+
+func (s *Server) handleMqttApnCommand(topic, apn string) {
+	apn = strings.TrimSpace(apn)
+	if apn == "" {
+		s.logger.Printf("mqtt apn: empty payload from %s", topic)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	client := s.getClient()
+	session, _, err := client.GetLogin(false)
+	if err != nil {
+		s.logger.Printf("mqtt apn: login failed: %v", err)
+		return
+	}
+	if session == nil {
+		s.logger.Printf("mqtt apn: login returned no session")
+		return
+	}
+
+	if _, err = client.PostSetAPN(ctx, session, apn); err != nil {
+		session, _, relogErr := client.GetLogin(true)
+		if relogErr != nil {
+			s.logger.Printf("mqtt apn: relogin failed: %v", relogErr)
+			return
+		}
+		if session == nil {
+			s.logger.Printf("mqtt apn: relogin returned no session")
+			return
+		}
+		if _, err = client.PostSetAPN(ctx, session, apn); err != nil {
+			s.logger.Printf("mqtt apn: apply failed for %q: %v", apn, err)
+			return
+		}
+	}
+
+	s.logger.Printf("mqtt apn: applied APN %q from topic %s", apn, topic)
+}
+
+func (s *Server) publishMqttSafe(topic string, payload interface{}) {
+	if err := s.publishMqtt(topic, payload); err != nil && !errors.Is(err, errMqttDisabled) {
+		s.logger.Printf("mqtt: publish %s failed: %v", topic, err)
+	}
+}
+
+func buildDailyUsageSnapshot(settingsData settings.Settings) map[string]interface{} {
+	totalUpload := int64(0)
+	totalDownload := int64(0)
+
+	for _, usage := range settingsData.DailyUsage {
+		totalUpload += usage.Upload
+		totalDownload += usage.Download
+	}
+	totalCombined := totalUpload + totalDownload
+
+	todayKey := time.Now().Format("2006-01-02")
+	todayUsage := settings.UsageStats{}
+	dailyData := make([]map[string]interface{}, 0, len(settingsData.DailyUsage))
+	for date, usage := range settingsData.DailyUsage {
+		if date == todayKey {
+			todayUsage = usage
+			continue
+		}
+		uploadPerc := percentage(usage.Upload, totalUpload)
+		downloadPerc := percentage(usage.Download, totalDownload)
+		combined := usage.Upload + usage.Download
+		combinedPerc := percentage(combined, totalCombined)
+
+		dailyData = append(dailyData, map[string]interface{}{
+			"date": date,
+			"upload": map[string]interface{}{
+				"raw_bytes":  usage.Upload,
+				"formatted":  formatBytes(usage.Upload),
+				"percentage": uploadPerc,
+			},
+			"download": map[string]interface{}{
+				"raw_bytes":  usage.Download,
+				"formatted":  formatBytes(usage.Download),
+				"percentage": downloadPerc,
+			},
+			"combined": map[string]interface{}{
+				"raw_bytes":  combined,
+				"formatted":  formatBytes(combined),
+				"percentage": combinedPerc,
+			},
+		})
+	}
+
+	sort.Slice(dailyData, func(i, j int) bool {
+		di := dailyData[i]["date"].(string)
+		dj := dailyData[j]["date"].(string)
+		return di > dj
+	})
+
+	last7 := make([]map[string]interface{}, 0, 7)
+	for i := 0; i < len(dailyData) && i < 7; i++ {
+		last7 = append(last7, dailyData[i])
+	}
+
+	todayEntry := map[string]interface{}{
+		"date": todayKey,
+		"upload": map[string]interface{}{
+			"raw_bytes":  todayUsage.Upload,
+			"formatted":  formatBytes(todayUsage.Upload),
+			"percentage": percentage(todayUsage.Upload, totalUpload),
+		},
+		"download": map[string]interface{}{
+			"raw_bytes":  todayUsage.Download,
+			"formatted":  formatBytes(todayUsage.Download),
+			"percentage": percentage(todayUsage.Download, totalDownload),
+		},
+		"combined": map[string]interface{}{
+			"raw_bytes":  todayUsage.Upload + todayUsage.Download,
+			"formatted":  formatBytes(todayUsage.Upload + todayUsage.Download),
+			"percentage": percentage(todayUsage.Upload+todayUsage.Download, totalCombined),
+		},
+	}
+
+	dailyData = append([]map[string]interface{}{todayEntry}, dailyData...)
+
+	return map[string]interface{}{
+		"daily_data": dailyData,
+		"total_usage": map[string]string{
+			"upload":   formatBytes(totalUpload),
+			"download": formatBytes(totalDownload),
+			"combined": formatBytes(totalCombined),
+		},
+		"today_usage": map[string]interface{}{
+			"date": todayKey,
+			"upload": map[string]interface{}{
+				"raw_bytes":  todayUsage.Upload,
+				"formatted":  formatBytes(todayUsage.Upload),
+				"percentage": percentage(todayUsage.Upload, totalUpload),
+			},
+			"download": map[string]interface{}{
+				"raw_bytes":  todayUsage.Download,
+				"formatted":  formatBytes(todayUsage.Download),
+				"percentage": percentage(todayUsage.Download, totalDownload),
+			},
+			"combined": map[string]interface{}{
+				"raw_bytes":  todayUsage.Upload + todayUsage.Download,
+				"formatted":  formatBytes(todayUsage.Upload + todayUsage.Download),
+				"percentage": percentage(todayUsage.Upload+todayUsage.Download, totalCombined),
+			},
+		},
+		"last_7_days": last7,
+	}
+}
 func (s *Server) handleNextApp(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -209,61 +538,11 @@ func (s *Server) handleDailyUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	settingsData := s.store.Get()
-	totalUpload := int64(0)
-	totalDownload := int64(0)
-	for _, usage := range settingsData.DailyUsage {
-		totalUpload += usage.Upload
-		totalDownload += usage.Download
-	}
-	totalCombined := totalUpload + totalDownload
-
-	dailyData := make([]map[string]interface{}, 0, len(settingsData.DailyUsage))
-	for date, usage := range settingsData.DailyUsage {
-		uploadPerc := percentage(usage.Upload, totalUpload)
-		downloadPerc := percentage(usage.Download, totalDownload)
-		combined := usage.Upload + usage.Download
-		combinedPerc := percentage(combined, totalCombined)
-
-		dailyData = append(dailyData, map[string]interface{}{
-			"date": date,
-			"upload": map[string]interface{}{
-				"raw_bytes":  usage.Upload,
-				"formatted":  formatBytes(usage.Upload),
-				"percentage": uploadPerc,
-			},
-			"download": map[string]interface{}{
-				"raw_bytes":  usage.Download,
-				"formatted":  formatBytes(usage.Download),
-				"percentage": downloadPerc,
-			},
-			"combined": map[string]interface{}{
-				"raw_bytes":  combined,
-				"formatted":  formatBytes(combined),
-				"percentage": combinedPerc,
-			},
-		})
-	}
-
-	sort.Slice(dailyData, func(i, j int) bool {
-		di := dailyData[i]["date"].(string)
-		dj := dailyData[j]["date"].(string)
-		return di > dj
+	response := buildDailyUsageSnapshot(settingsData)
+	s.publishMqttSafe("daily_usage", map[string]interface{}{
+		"fetched_at": time.Now().UTC().Format(time.RFC3339),
+		"data":       response,
 	})
-
-	last7 := make([]map[string]interface{}, 0, 7)
-	for i := 0; i < len(dailyData) && i < 7; i++ {
-		last7 = append(last7, dailyData[i])
-	}
-
-	response := map[string]interface{}{
-		"daily_data": dailyData,
-		"total_usage": map[string]string{
-			"upload":   formatBytes(totalUpload),
-			"download": formatBytes(totalDownload),
-			"combined": formatBytes(totalCombined),
-		},
-		"last_7_days": last7,
-	}
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -274,6 +553,10 @@ func (s *Server) handleGetDataExpired(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := s.store.Get()
+	s.publishMqttSafe("data_expired", map[string]interface{}{
+		"fetched_at":   time.Now().UTC().Format(time.RFC3339),
+		"data_expired": data.DataExpired,
+	})
 	writeJSON(w, http.StatusOK, data.DataExpired)
 }
 
@@ -317,6 +600,10 @@ func (s *Server) handlePreloginStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.publishMqttSafe("prelogin_status", map[string]interface{}{
+		"fetched_at": time.Now().UTC().Format(time.RFC3339),
+		"data":       data,
+	})
 	writeJSON(w, http.StatusOK, data)
 }
 
@@ -881,6 +1168,14 @@ func normalizeConfig(cfg config.Config) config.Config {
 			ForwardSmsToTelegram: cfg.LongPolling.ForwardSmsToTelegram,
 			IntervalSeconds:      cfg.LongPolling.IntervalSeconds,
 		},
+		MQTT: config.MQTTConfig{
+			Enabled:   cfg.MQTT.Enabled,
+			Broker:    strings.TrimSpace(cfg.MQTT.Broker),
+			ClientID:  strings.TrimSpace(cfg.MQTT.ClientID),
+			Username:  strings.TrimSpace(cfg.MQTT.Username),
+			Password:  cfg.MQTT.Password,
+			TopicBase: strings.TrimSpace(cfg.MQTT.TopicBase),
+		},
 	}
 
 	if normalized.RouterHost == "" {
@@ -906,6 +1201,9 @@ func normalizeConfig(cfg config.Config) config.Config {
 	}
 	if normalized.LongPolling.IntervalSeconds < 5 {
 		normalized.LongPolling.IntervalSeconds = defaults.LongPolling.IntervalSeconds
+	}
+	if strings.TrimSpace(normalized.MQTT.TopicBase) == "" {
+		normalized.MQTT.TopicBase = defaults.MQTT.TopicBase
 	}
 
 	return normalized
@@ -950,6 +1248,18 @@ func validateConfig(cfg config.Config) error {
 		}
 		if strings.TrimSpace(cfg.Telegram.ParseMode) != "" && !isValidTelegramParseMode(cfg.Telegram.ParseMode) {
 			return fmt.Errorf("invalid telegram.parse_mode: %s", cfg.Telegram.ParseMode)
+		}
+	}
+	if cfg.MQTT.Enabled {
+		broker := strings.TrimSpace(cfg.MQTT.Broker)
+		if broker == "" {
+			return errors.New("mqtt.broker is required when MQTT integration is enabled")
+		}
+		if _, err := url.Parse(broker); err != nil {
+			return fmt.Errorf("invalid mqtt.broker: %w", err)
+		}
+		if strings.TrimSpace(cfg.MQTT.TopicBase) == "" {
+			return errors.New("mqtt.topic_base is required when MQTT integration is enabled")
 		}
 	}
 

@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -140,7 +139,7 @@ func (a *smsArchive) snapshotIDs() (map[string]struct{}, error) {
 }
 
 func (s *Server) configureSmsForwarding(cfg config.Config) {
-	shouldStart := cfg.LongPolling.Enabled && cfg.LongPolling.ForwardSmsToTelegram
+	shouldStart := cfg.LongPolling.Enabled && (cfg.LongPolling.ForwardSmsToTelegram || cfg.MQTT.Enabled)
 
 	var (
 		start bool
@@ -168,13 +167,15 @@ func (s *Server) configureSmsForwarding(cfg config.Config) {
 	if stop != nil {
 		stop()
 		s.pollerWG.Wait()
-		s.logger.Printf("SMS forwarding poller stopped")
+		s.logger.Printf("SMS poller stopped")
 	}
 
 	if start {
 		go s.runSmsPoller(ctx)
-		s.logger.Printf("SMS forwarding poller started (interval %s)", s.nextSmsInterval())
+		s.logger.Printf("SMS poller started (interval %s)", s.nextSmsInterval())
 	}
+
+	s.configureMqtt(cfg)
 }
 
 func (s *Server) runSmsPoller(ctx context.Context) {
@@ -224,52 +225,147 @@ func (s *Server) performSmsSync(ctx context.Context) {
 
 	messages, err := s.fetchSmsMessages(pollCtx)
 	if err != nil {
-		s.logger.Printf("sms poller: fetch failed: %v", err)
+		s.logger.Printf("poller: fetch failed: %v", err)
 		return
 	}
 
 	existingIDs, err := s.smsArchive.snapshotIDs()
 	if err != nil {
-		s.logger.Printf("sms poller: snapshot archive failed: %v", err)
+		s.logger.Printf("poller: snapshot archive failed: %v", err)
 		existingIDs = map[string]struct{}{}
 	}
 
 	newMessages, err := s.smsArchive.Update(messages)
 	if err != nil {
-		s.logger.Printf("sms poller: persist failed: %v", err)
+		s.logger.Printf("poller: persist failed: %v", err)
 		return
+	}
+
+	cfg := s.getConfig()
+	s.mqttMu.Lock()
+	mqttClient := s.mqttClient
+	s.mqttMu.Unlock()
+	mqttConnected := mqttClient != nil && mqttClient.IsConnected()
+	mqttReady := cfg.MQTT.Enabled && cfg.LongPolling.Enabled && mqttConnected
+	now := time.Now().UTC()
+	statusPayload := map[string]interface{}{
+		"polled_at":          now.Format(time.RFC3339),
+		"total_messages":     len(messages),
+		"new_messages":       len(newMessages),
+		"interval_seconds":   cfg.LongPolling.IntervalSeconds,
+		"server_polling_on":  cfg.LongPolling.Enabled,
+		"mqtt_enabled":       cfg.LongPolling.Enabled && cfg.MQTT.Enabled,
+		"mqtt_connected":     mqttConnected,
+		"mqtt_ready":         mqttReady,
+		"telegram_forwarded": cfg.LongPolling.ForwardSmsToTelegram && cfg.Telegram.Enabled,
+	}
+	if mqttReady {
+		s.publishMqttSafe("status", statusPayload)
+
+		settingsSnapshot := s.store.Get()
+		dailyPayload := buildDailyUsageSnapshot(settingsSnapshot)
+		dailyPayload["polled_at"] = now.Format(time.RFC3339)
+		dailyPayload["source"] = "poller"
+		s.publishMqttSafe("daily_usage", dailyPayload)
+
+		s.publishMqttSafe("data_expired", map[string]interface{}{
+			"polled_at":    now.Format(time.RFC3339),
+			"data_expired": settingsSnapshot.DataExpired,
+			"source":       "poller",
+		})
+
+		statusCtx, statusCancel := context.WithTimeout(ctx, 10*time.Second)
+		statusWeb, err := s.fetchStatusWeb(statusCtx)
+		statusCancel()
+		if err != nil {
+			s.logger.Printf("poller: status_web fetch failed: %v", err)
+		} else {
+			if updateErr := s.store.UpdateUsageFromStatus(statusWeb); updateErr != nil {
+				s.logger.Printf("poller: update usage from status failed: %v", updateErr)
+			}
+			s.publishMqttSafe("status_web", map[string]interface{}{
+				"polled_at": now.Format(time.RFC3339),
+				"data":      statusWeb,
+				"source":    "poller",
+			})
+		}
+
+		serviceCtx, serviceCancel := context.WithTimeout(ctx, 10*time.Second)
+		serviceData, err := s.fetchServiceData(serviceCtx)
+		serviceCancel()
+		if err != nil {
+			s.logger.Printf("poller: service_data fetch failed: %v", err)
+		} else {
+			s.publishMqttSafe("service_data", map[string]interface{}{
+				"polled_at": now.Format(time.RFC3339),
+				"data":      serviceData,
+				"source":    "poller",
+			})
+		}
+
+		preCtx, preCancel := context.WithTimeout(ctx, 10*time.Second)
+		preStatus, err := s.getClient().GetPreloginStatus(preCtx)
+		preCancel()
+		if err != nil {
+			s.logger.Printf("poller: prelogin fetch failed: %v", err)
+		} else {
+			s.publishMqttSafe("prelogin_status", map[string]interface{}{
+				"polled_at": now.Format(time.RFC3339),
+				"data":      preStatus,
+				"source":    "poller",
+			})
+		}
 	}
 
 	if len(newMessages) == 0 {
 		return
 	}
 
-	cfg := s.getConfig()
-	if !cfg.Telegram.Enabled {
-		return
+	telegramEnabled := cfg.Telegram.Enabled && cfg.LongPolling.ForwardSmsToTelegram
+	chatID := ""
+	parseMode := strings.TrimSpace(cfg.Telegram.ParseMode)
+	if telegramEnabled {
+		chatID = strings.TrimSpace(cfg.Telegram.ChatID)
+		if chatID == "" {
+			s.logger.Printf("poller: telegram chat id missing")
+			telegramEnabled = false
+		}
 	}
 
-	chatID := strings.TrimSpace(cfg.Telegram.ChatID)
-	if chatID == "" {
-		s.logger.Printf("sms poller: telegram chat id missing")
-		return
-	}
-
+	publishTime := now.Format(time.RFC3339)
 	for _, msg := range newMessages {
 		if _, exists := existingIDs[msg.SMSID]; exists {
 			continue
 		}
 
-		messageText, parseMode := formatSmsForTelegram(msg, cfg.Telegram.ParseMode)
+		payload := map[string]interface{}{
+			"id":            msg.SMSID,
+			"sender":        strings.TrimSpace(msg.SMSSender),
+			"content":       msg.SMSContent,
+			"timestamp":     msg.SMSDateTime,
+			"display_time":  formatSmsDisplayTime(msg),
+			"unread":        msg.SMSUnread,
+			"received_at":   publishTime,
+			"poll_interval": cfg.LongPolling.IntervalSeconds,
+		}
+		if mqttReady {
+			s.publishMqttSafe("sms", payload)
+		}
 
-		sendCtx, sendCancel := context.WithTimeout(ctx, 15*time.Second)
-		err := s.sendTelegramMessage(sendCtx, cfg.Telegram, chatID, parseMode, messageText)
-		sendCancel()
-		if err != nil {
-			s.logger.Printf("sms poller: telegram send failed for SMS %s: %v", msg.SMSID, err)
+		if !telegramEnabled {
 			continue
 		}
-		s.logger.Printf("sms poller: forwarded SMS %s to Telegram", msg.SMSID)
+
+		messageText, resolvedParseMode := formatSmsForTelegram(msg, parseMode)
+
+		sendCtx, sendCancel := context.WithTimeout(ctx, 15*time.Second)
+		err := s.sendTelegramMessage(sendCtx, cfg.Telegram, chatID, resolvedParseMode, messageText)
+		sendCancel()
+		if err != nil {
+			s.logger.Printf("poller: telegram send failed for SMS %s: %v", msg.SMSID, err)
+			continue
+		}
+		s.logger.Printf("poller: forwarded SMS %s to Telegram", msg.SMSID)
 	}
 }
 
@@ -299,6 +395,60 @@ func (s *Server) fetchSmsMessages(ctx context.Context) ([]smsMessage, error) {
 	}
 
 	return normalizeSmsMessages(payload), nil
+}
+
+func (s *Server) fetchStatusWeb(ctx context.Context) (map[string]interface{}, error) {
+	client := s.getClient()
+	session, _, err := client.GetLogin(false)
+	if err != nil {
+		return nil, fmt.Errorf("login: %w", err)
+	}
+	if session == nil {
+		return nil, errors.New("status_web: no session")
+	}
+
+	data, err := client.GetStatusWeb(ctx, session)
+	if err != nil {
+		session, _, relogErr := client.GetLogin(true)
+		if relogErr != nil {
+			return nil, fmt.Errorf("status_web: relogin failed: %w", relogErr)
+		}
+		if session == nil {
+			return nil, errors.New("status_web: relogin failed: no session")
+		}
+		data, err = client.GetStatusWeb(ctx, session)
+		if err != nil {
+			return nil, fmt.Errorf("status_web: %w", err)
+		}
+	}
+	return data, nil
+}
+
+func (s *Server) fetchServiceData(ctx context.Context) (map[string]interface{}, error) {
+	client := s.getClient()
+	session, _, err := client.GetLogin(false)
+	if err != nil {
+		return nil, fmt.Errorf("login: %w", err)
+	}
+	if session == nil {
+		return nil, errors.New("service_data: no session")
+	}
+
+	data, err := client.PostServiceData(ctx, session)
+	if err != nil {
+		session, _, relogErr := client.GetLogin(true)
+		if relogErr != nil {
+			return nil, fmt.Errorf("service_data: relogin failed: %w", relogErr)
+		}
+		if session == nil {
+			return nil, errors.New("service_data: relogin failed: no session")
+		}
+		data, err = client.PostServiceData(ctx, session)
+		if err != nil {
+			return nil, fmt.Errorf("service_data: %w", err)
+		}
+	}
+	return data, nil
 }
 
 func normalizeSmsMessages(raw interface{}) []smsMessage {
@@ -425,7 +575,7 @@ func toString(value interface{}) string {
 		}
 		return "false"
 	default:
-		return strings.TrimSpace(fmt.Sprint(v))
+		return ""
 	}
 }
 
@@ -434,25 +584,19 @@ func toBool(value interface{}, fallback bool) bool {
 	case bool:
 		return v
 	case string:
-		trimmed := strings.TrimSpace(strings.ToLower(v))
-		switch trimmed {
+		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "1", "true", "yes", "on":
 			return true
 		case "0", "false", "no", "off":
 			return false
-		}
-		if num, err := strconv.ParseFloat(trimmed, 64); err == nil {
-			return num != 0
+		default:
+			return fallback
 		}
 	case float64:
 		return v != 0
 	case float32:
 		return v != 0
 	case int:
-		return v != 0
-	case int8:
-		return v != 0
-	case int16:
 		return v != 0
 	case int32:
 		return v != 0
@@ -524,10 +668,10 @@ func formatSmsForTelegram(msg smsMessage, parseMode string) (string, string) {
 
 func formatSmsDisplayTime(msg smsMessage) string {
 	if !msg.parsedTime.IsZero() {
-		return msg.parsedTime.Format("15:04 - 02/01/2006")
+		return msg.parsedTime.Format("15:04 02/01/2006")
 	}
 	if parsed := parseSmsTime(msg.SMSDateTime); !parsed.IsZero() {
-		return parsed.Format("15:04 - 02/01/2006")
+		return parsed.Format("15:04 02/01/2006")
 	}
 	trimmed := strings.TrimSpace(msg.SMSDateTime)
 	if trimmed != "" {

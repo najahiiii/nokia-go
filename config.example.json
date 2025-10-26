@@ -15,5 +15,13 @@
     "enabled": false,
     "forward_sms_to_telegram": false,
     "interval_seconds": 10
+  },
+  "mqtt": {
+    "enabled": false,
+    "broker": "mqtt://localhost:1883",
+    "client_id": "",
+    "username": "",
+    "password": "",
+    "topic_base": "modem/nokia"
   }
 }

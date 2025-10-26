@@ -20,6 +20,7 @@ type Config struct {
 	PollIntervalMs int               `json:"poll_interval_ms"`
 	Telegram       TelegramConfig    `json:"telegram"`
 	LongPolling    LongPollingConfig `json:"long_polling"`
+	MQTT           MQTTConfig        `json:"mqtt"`
 }
 
 type TelegramConfig struct {
@@ -34,6 +35,15 @@ type LongPollingConfig struct {
 	Enabled              bool `json:"enabled"`
 	ForwardSmsToTelegram bool `json:"forward_sms_to_telegram"`
 	IntervalSeconds      int  `json:"interval_seconds"`
+}
+
+type MQTTConfig struct {
+	Enabled   bool   `json:"enabled"`
+	Broker    string `json:"broker"`
+	ClientID  string `json:"client_id"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	TopicBase string `json:"topic_base"`
 }
 
 // Defaults provides safe defaults when nothing else is configured.
@@ -56,6 +66,14 @@ func Defaults() Config {
 			Enabled:              false,
 			ForwardSmsToTelegram: false,
 			IntervalSeconds:      10,
+		},
+		MQTT: MQTTConfig{
+			Enabled:   false,
+			Broker:    "",
+			ClientID:  "",
+			Username:  "",
+			Password:  "",
+			TopicBase: "modem/nokia",
 		},
 	}
 }
@@ -139,6 +157,24 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.LongPolling.IntervalSeconds = seconds
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("MQTT_ENABLED")); v != "" {
+		cfg.MQTT.Enabled = parseBool(v, cfg.MQTT.Enabled)
+	}
+	if v := strings.TrimSpace(os.Getenv("MQTT_BROKER")); v != "" {
+		cfg.MQTT.Broker = v
+	}
+	if v := strings.TrimSpace(os.Getenv("MQTT_CLIENT_ID")); v != "" {
+		cfg.MQTT.ClientID = v
+	}
+	if v := strings.TrimSpace(os.Getenv("MQTT_USERNAME")); v != "" {
+		cfg.MQTT.Username = v
+	}
+	if v := strings.TrimSpace(os.Getenv("MQTT_PASSWORD")); v != "" {
+		cfg.MQTT.Password = v
+	}
+	if v := strings.TrimSpace(os.Getenv("MQTT_TOPIC_BASE")); v != "" {
+		cfg.MQTT.TopicBase = v
+	}
 }
 
 func ensureDefaults(cfg *Config) {
@@ -170,6 +206,9 @@ func ensureDefaults(cfg *Config) {
 	}
 	if cfg.LongPolling.IntervalSeconds <= 0 {
 		cfg.LongPolling.IntervalSeconds = defaults.LongPolling.IntervalSeconds
+	}
+	if strings.TrimSpace(cfg.MQTT.TopicBase) == "" {
+		cfg.MQTT.TopicBase = defaults.MQTT.TopicBase
 	}
 }
 
