@@ -400,6 +400,11 @@ func (c *Client) getAuthenticated(ctx context.Context, endpoint string, session 
 	return c.get(ctx, endpoint, headers)
 }
 
+// DebugGetAuthenticated allows manual debugging against custom endpoints.
+func (c *Client) DebugGetAuthenticated(ctx context.Context, endpoint string, session *LoginSession, headers map[string]string) (map[string]interface{}, error) {
+	return c.getAuthenticated(ctx, endpoint, session, headers)
+}
+
 func (c *Client) postAuthenticatedJSON(ctx context.Context, endpoint string, session *LoginSession, payload interface{}) (map[string]interface{}, error) {
 	headers := map[string]string{
 		"Cookie": "sid=" + session.SID,
