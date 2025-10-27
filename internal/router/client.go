@@ -400,9 +400,33 @@ func (c *Client) getAuthenticated(ctx context.Context, endpoint string, session 
 	return c.get(ctx, endpoint, headers)
 }
 
+// DebugGet issues a raw GET request against the router without authentication handling.
+func (c *Client) DebugGet(ctx context.Context, endpoint string, headers map[string]string) (map[string]interface{}, error) {
+	return c.get(ctx, endpoint, headers)
+}
+
+// DebugPostForm sends an x-www-form-urlencoded POST without authentication.
+func (c *Client) DebugPostForm(ctx context.Context, endpoint string, form url.Values, headers map[string]string) (map[string]interface{}, error) {
+	return c.postForm(ctx, endpoint, form, headers)
+}
+
+// DebugPostJSON performs a JSON POST without authentication.
+func (c *Client) DebugPostJSON(ctx context.Context, endpoint string, payload interface{}, headers map[string]string) (map[string]interface{}, error) {
+	return c.postJSON(ctx, endpoint, payload, headers)
+}
+
 // DebugGetAuthenticated allows manual debugging against custom endpoints.
 func (c *Client) DebugGetAuthenticated(ctx context.Context, endpoint string, session *LoginSession, headers map[string]string) (map[string]interface{}, error) {
 	return c.getAuthenticated(ctx, endpoint, session, headers)
+}
+
+// DebugPostAuthenticatedJSON performs a JSON POST including the session cookie.
+func (c *Client) DebugPostAuthenticatedJSON(ctx context.Context, endpoint string, session *LoginSession, payload interface{}, headers map[string]string) (map[string]interface{}, error) {
+	if headers == nil {
+		headers = map[string]string{}
+	}
+	headers["Cookie"] = "sid=" + session.SID
+	return c.postJSON(ctx, endpoint, payload, headers)
 }
 
 func (c *Client) postAuthenticatedJSON(ctx context.Context, endpoint string, session *LoginSession, payload interface{}) (map[string]interface{}, error) {

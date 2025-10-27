@@ -62,6 +62,8 @@ type Server struct {
 
 var errMqttDisabled = errors.New("mqtt disabled")
 
+const defaultDebugTimeout = 15 * time.Second
+
 func New(client *router.Client, store *settings.Store, cfgPath string, cfg config.Config, reloadFn func(config.Config)) *Server {
 	smsPath := "sms.json"
 	if trimmed := strings.TrimSpace(cfgPath); trimmed != "" {
@@ -114,6 +116,13 @@ func (s *Server) Config() config.Config {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/debug/get", s.handleDebugGet)
+	mux.HandleFunc("/api/debug/post_form", s.handleDebugPostForm)
+	mux.HandleFunc("/api/debug/post_json", s.handleDebugPostJSON)
+	mux.HandleFunc("/api/debug/get_authenticated", s.handleDebugGetAuthenticated)
+	mux.HandleFunc("/api/debug/post_authenticated_json", s.handleDebugPostAuthenticatedJSON)
+	mux.HandleFunc("/api/debug/post_csrf_encrypted", s.handleDebugPostCSRFEncrypted)
 
 	mux.HandleFunc("/api/daily_usage", s.handleDailyUsage)
 	mux.HandleFunc("/api/get_data_expired", s.handleGetDataExpired)
@@ -529,6 +538,234 @@ func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(data); err != nil {
 		s.logger.Printf("failed to write favicon: %v", err)
 	}
+}
+
+func (s *Server) handleDebugGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Endpoint  string            `json:"endpoint"`
+		Headers   map[string]string `json:"headers"`
+		TimeoutMs int               `json:"timeout_ms"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	endpoint := strings.TrimSpace(payload.Endpoint)
+	if endpoint == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endpoint is required"})
+		return
+	}
+
+	headers := sanitizeDebugHeaders(payload.Headers)
+	ctx, cancel := debugContext(r.Context(), payload.TimeoutMs)
+	defer cancel()
+
+	client := s.getClient()
+	result, err := client.DebugGet(ctx, endpoint, headers)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleDebugPostForm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Endpoint  string                 `json:"endpoint"`
+		Headers   map[string]string      `json:"headers"`
+		Form      map[string]interface{} `json:"form"`
+		TimeoutMs int                    `json:"timeout_ms"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	endpoint := strings.TrimSpace(payload.Endpoint)
+	if endpoint == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endpoint is required"})
+		return
+	}
+
+	headers := sanitizeDebugHeaders(payload.Headers)
+	formValues := buildDebugFormValues(payload.Form)
+
+	ctx, cancel := debugContext(r.Context(), payload.TimeoutMs)
+	defer cancel()
+
+	client := s.getClient()
+	result, err := client.DebugPostForm(ctx, endpoint, formValues, headers)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleDebugPostJSON(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Endpoint  string            `json:"endpoint"`
+		Headers   map[string]string `json:"headers"`
+		Payload   json.RawMessage   `json:"payload"`
+		TimeoutMs int               `json:"timeout_ms"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	endpoint := strings.TrimSpace(payload.Endpoint)
+	if endpoint == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endpoint is required"})
+		return
+	}
+
+	headers := sanitizeDebugHeaders(payload.Headers)
+
+	var body interface{}
+	if len(payload.Payload) > 0 {
+		if err := json.Unmarshal(payload.Payload, &body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid payload JSON"})
+			return
+		}
+	}
+
+	ctx, cancel := debugContext(r.Context(), payload.TimeoutMs)
+	defer cancel()
+
+	client := s.getClient()
+	result, err := client.DebugPostJSON(ctx, endpoint, body, headers)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleDebugGetAuthenticated(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Endpoint  string            `json:"endpoint"`
+		Headers   map[string]string `json:"headers"`
+		TimeoutMs int               `json:"timeout_ms"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	endpoint := strings.TrimSpace(payload.Endpoint)
+	if endpoint == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endpoint is required"})
+		return
+	}
+
+	headers := sanitizeDebugHeaders(payload.Headers)
+	timeoutMs := payload.TimeoutMs
+
+	s.withSessionForMethods(w, r, []string{http.MethodPost}, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
+		timeoutCtx, cancel := debugContext(ctx, timeoutMs)
+		defer cancel()
+
+		client := s.getClient()
+		return client.DebugGetAuthenticated(timeoutCtx, endpoint, session, cloneStringMap(headers))
+	})
+}
+
+func (s *Server) handleDebugPostAuthenticatedJSON(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Endpoint  string            `json:"endpoint"`
+		Headers   map[string]string `json:"headers"`
+		Payload   json.RawMessage   `json:"payload"`
+		TimeoutMs int               `json:"timeout_ms"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	endpoint := strings.TrimSpace(payload.Endpoint)
+	if endpoint == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endpoint is required"})
+		return
+	}
+
+	var body interface{}
+	if len(payload.Payload) > 0 {
+		if err := json.Unmarshal(payload.Payload, &body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid payload JSON"})
+			return
+		}
+	}
+
+	headers := sanitizeDebugHeaders(payload.Headers)
+	timeoutMs := payload.TimeoutMs
+
+	s.withSessionForMethods(w, r, []string{http.MethodPost}, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
+		timeoutCtx, cancel := debugContext(ctx, timeoutMs)
+		defer cancel()
+
+		client := s.getClient()
+		return client.DebugPostAuthenticatedJSON(timeoutCtx, endpoint, session, body, cloneStringMap(headers))
+	})
+}
+
+func (s *Server) handleDebugPostCSRFEncrypted(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var payload struct {
+		Endpoint  string `json:"endpoint"`
+		Plaintext string `json:"plaintext"`
+		TimeoutMs int    `json:"timeout_ms"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+
+	endpoint := strings.TrimSpace(payload.Endpoint)
+	if endpoint == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "endpoint is required"})
+		return
+	}
+
+	timeoutMs := payload.TimeoutMs
+
+	s.withSessionForMethods(w, r, []string{http.MethodPost}, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
+		timeoutCtx, cancel := debugContext(ctx, timeoutMs)
+		defer cancel()
+
+		client := s.getClient()
+		return client.PostCSRFEncrypted(timeoutCtx, endpoint, session, payload.Plaintext)
+	})
 }
 
 func (s *Server) handleDailyUsage(w http.ResponseWriter, r *http.Request) {
@@ -1282,6 +1519,72 @@ func (s *Server) validateListener(cfg config.Config) error {
 		return fmt.Errorf("listen address %s unable to close probe listener: %w", addr, err)
 	}
 	return nil
+}
+
+func debugContext(parent context.Context, timeoutMs int) (context.Context, context.CancelFunc) {
+	timeout := defaultDebugTimeout
+	if timeoutMs > 0 {
+		timeout = time.Duration(timeoutMs) * time.Millisecond
+		if timeout <= 0 {
+			timeout = defaultDebugTimeout
+		}
+	}
+	return context.WithTimeout(parent, timeout)
+}
+
+func sanitizeDebugHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(headers))
+	for k, v := range headers {
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		out[key] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func buildDebugFormValues(raw map[string]interface{}) url.Values {
+	values := url.Values{}
+	if len(raw) == 0 {
+		return values
+	}
+	for key, val := range raw {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		switch v := val.(type) {
+		case nil:
+			continue
+		case string:
+			values.Add(key, v)
+		case []interface{}:
+			for _, item := range v {
+				values.Add(key, fmt.Sprint(item))
+			}
+		default:
+			values.Add(key, fmt.Sprint(v))
+		}
+	}
+	return values
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {

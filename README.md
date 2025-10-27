@@ -1,8 +1,10 @@
 # Nokia FastMile 5G Gateway 2 Custom Web UI (Go)
 
 > [!note]
+>
 > _Do something. If it doesn't work, do something else. No idea is too crazy._</br>
-**Jim Hightower**, _The New York Times, March 9, 1986_.
+>
+> **Jim Hightower**, _The New York Times, March 9, 1986_.
 
 ## Preview
 
@@ -52,6 +54,70 @@
 - `GET /api/config` — returns the current merged configuration snapshot.
 - `POST /api/config` — persists configuration changes and triggers a hot reload.
 - `POST /api/telegram/send` — bridges messages to Telegram (`{"message":"text","chat_id":"override","parse_mode":"MarkdownV2"}`); uses configured chat ID / parse mode when omitted.
+
+## Debug API Endpoints
+
+The debug surface is available under `/api/debug/*` and mirrors the internal modem helpers so you can inspect raw responses without touching the Modem UI. Every route below expects a `POST` with a JSON body and replies with the decoded router JSON (or an error envelope). All fields are optional unless marked as required.
+
+| Endpoint                             | Purpose                                            | Required Fields                  | Optional Fields                               |
+| ------------------------------------ | -------------------------------------------------- | -------------------------------- | --------------------------------------------- |
+| `/api/debug/get`                     | Plain router `GET` without authentication.         | `endpoint` (string)              | `headers` (object), `timeout_ms` (int)        |
+| `/api/debug/post_form`               | Form-encoded `POST` without authentication.        | `endpoint`, `form` (object)      | `headers`, `timeout_ms`                       |
+| `/api/debug/post_json`               | JSON `POST` without authentication.                | `endpoint`                       | `headers`, `payload` (any JSON), `timeout_ms` |
+| `/api/debug/get_authenticated`       | Router `GET` with SID cookie; re-logins if needed. | `endpoint`                       | `headers`, `timeout_ms`                       |
+| `/api/debug/post_authenticated_json` | JSON `POST` with SID cookie.                       | `endpoint`                       | `headers`, `payload`, `timeout_ms`            |
+| `/api/debug/post_csrf_encrypted`     | Encrypted form `POST` that injects the CSRF token. | `endpoint`, `plaintext` (string) | `timeout_ms`                                  |
+
+### Request Body Reference
+
+```jsonc
+{
+  "endpoint": "prelogin_status_web_app.cgi", // required for every call
+  "headers": { "X-Debug": "1" }, // optional HTTP headers
+  "timeout_ms": 5000, // optional, defaults to 15000 ms
+  "form": { "userName": "admin" }, // only for post_form
+  "payload": { "version": 1 }, // only for JSON posts
+  "plaintext": "EnableGbl=on&csrf_token=" // only for post_csrf_encrypted
+}
+```
+
+- `endpoint` should match the Modem CGI path (without leading slash).
+- `headers` are merged directly into the outbound request.
+- `form` values are stringified; arrays become repeated keys.
+- `payload` is forwarded verbatim (nested JSON supported).
+- `plaintext` may omit the `csrf_token` value; the server fills in the current session token automatically.
+- `timeout_ms` overrides the default 15 s request deadline.
+
+### Curl Examples
+
+```sh
+# 1. Plain GET to fetch pre-login status (no session required)
+curl -sS -X POST http://localhost:5000/api/debug/get \
+  -H 'Content-Type: application/json' \
+  -d '{"endpoint":"prelogin_status_web_app.cgi"}'
+
+# 2. Form POST without authentication
+curl -sS -X POST http://localhost:5000/api/debug/post_form \
+  -H 'Content-Type: application/json' \
+  -d '{"endpoint":"login_web_app.cgi?nonce","form":{"userName":"admin"}}'
+
+# 3. Authenticated GET (SID cookie + automatic re-login)
+curl -sS -X POST http://localhost:5000/api/debug/get_authenticated \
+  -H 'Content-Type: application/json' \
+  -d '{"endpoint":"overview_get_web_app.cgi","headers":{"X-Trace":"test"}}'
+
+# 4. Authenticated JSON POST
+curl -sS -X POST http://localhost:5000/api/debug/post_authenticated_json \
+  -H 'Content-Type: application/json' \
+  -d '{"endpoint":"service_function_web_app.cgi","payload":{"version":1,"csrf_token":"","id":1}}'
+
+# 5. Encrypted POST (token inserted automatically if empty)
+curl -sS -X POST http://localhost:5000/api/debug/post_csrf_encrypted \
+  -H 'Content-Type: application/json' \
+  -d '{"endpoint":"ledctrl_web_app.cgi?SetLedGlb","plaintext":"EnableGbl=off&EnableSigGbl=off&csrf_token="}' # Example request for switch off LED
+```
+
+Responses mirror whatever the modem sends. When the backend cannot decode JSON, it falls back to `{ "raw": "<body>" }` so you can inspect unexpected payloads. Errors are returned as `{"error":"...message..."}` with an appropriate HTTP status code.
 
 ## Configuration
 
@@ -125,7 +191,7 @@ The application merges configuration from multiple sources in this order:
    - `TELEGRAM_CHAT_ID`
    - `TELEGRAM_PARSE_MODE`
 4. **Fallback cleanup**: after merge we ensure every field is populated—if any value ends up blank it is replaced by the default again.
-Running `setup` simply ensures the config file exists by materialising the defaults on disk (without overriding existing values). Subsequent edits—either manual or via the web UI—will be picked up the next time you invoke `run`, and the UI hot-reloads the service after each save.
+   Running `setup` simply ensures the config file exists by materialising the defaults on disk (without overriding existing values). Subsequent edits—either manual or via the web UI—will be picked up the next time you invoke `run`, and the UI hot-reloads the service after each save.
 
 > [!tip]
 > After the daemon starts you can manage configuration from the web UI by visiting `http://<LISTEN_HOST>:<LISTEN_PORT>` (defaults to `http://127.0.0.1:5000` on the CLI or `http://<router-ip>:5000` on OpenWrt). Saving changes in the UI writes to the config file and automatically restarts the service. If you change either `ListenHost` or `ListenPort`, reconnect using the new address.
