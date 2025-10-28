@@ -10,6 +10,10 @@
 
 ![nokiiiyaaa](.github/assets/nokiiiyaaa.png)
 
+> [!note]
+>
+> Full [screencroot](Screencrot.md)
+
 ## Features
 
 - Full web dashboard pulling live LTE signal, service carrier-aggregation data, device uptime, CPU, memory, router/WAN IP and DNS information.
