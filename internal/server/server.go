@@ -143,6 +143,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/set_sms_state", s.handleSetSmsState)
 	mux.HandleFunc("/api/delete_sms", s.handleDeleteSms)
 	mux.HandleFunc("/api/cell_identification", s.handleCellIdentification)
+	mux.HandleFunc("/api/sim_info", s.handleSimInfo)
 	mux.HandleFunc("/api/led_status", s.handleLedStatus)
 	mux.HandleFunc("/api/led_state", s.handleLedState)
 	mux.HandleFunc("/api/config/listener_available", s.handleConfigListenerCheck)
@@ -1052,6 +1053,13 @@ func (s *Server) handleCellIdentification(w http.ResponseWriter, r *http.Request
 	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
 		client := s.getClient()
 		return client.PostCellularIdentification(ctx, session)
+	})
+}
+
+func (s *Server) handleSimInfo(w http.ResponseWriter, r *http.Request) {
+	s.withSession(w, r, func(ctx context.Context, session *router.LoginSession) (interface{}, error) {
+		client := s.getClient()
+		return client.GetSimInfo(ctx, session)
 	})
 }
 

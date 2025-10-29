@@ -209,6 +209,10 @@ func (c *Client) GetLedState(ctx context.Context, session *LoginSession) (map[st
 	return c.getAuthenticated(ctx, "ledctrl_status_web_app.cgi", session, nil)
 }
 
+func (c *Client) GetSimInfo(ctx context.Context, session *LoginSession) (map [string]interface{}, error) {
+	return c.getAuthenticated(ctx, "fastmile_statistics_status_web_app.cgi", session, nil)
+}
+
 func (c *Client) LedState(ctx context.Context, session *LoginSession, enable bool) (map[string]interface{}, error) {
 	state := "off"
 	if enable {

@@ -22,6 +22,7 @@
 - Wi-Fi status panels for 2.4 GHz and 5 GHz networks that reflect enablement state and SSID details.
 - SMS inbox viewer with unread badge, inline message viewer, mark-as-read actions, single/bulk deletion, and toast-driven feedback.
 - WAN IP overview card that opens a detailed modal with IPv4/IPv6 addressing and DNS resolvers, each value supporting click-to-copy.
+- SIM card information dialog with blurred spoilers for IMEI/ICCID/IMSI/MSISDN and per-field reveal controls.
 - LED control switch, enabling/disabling indicators with optimistic UI feedback.
 - Data expiration manager that reads, extends (30 days), or saves custom expiry timestamps directly on the router.
 - WAN IP renewal workflow that cycles APN profiles until a new public IP is observed, complete with progress/error toasts.
@@ -55,6 +56,7 @@
 - `GET /api/led_status` — normalized LED enablement flags (`enabled`, `status_led`, `signal_led`).
 - `GET /api/led_state` — same normalized LED payload (read-only compatibility).
 - `POST /api/led_state` — enables or disables LEDs (`{"enable":true}` or `?enable=false`).
+- `GET /api/sim_info` — SIM card metadata including IMEI, ICCID, IMSI, MSISDN, and status/type.
 - `GET /api/config/listener_available?host=&port=` — validates prospective listener host/port before saving config.
 - `GET /api/config` — returns the current merged configuration snapshot.
 - `POST /api/config` — persists configuration changes and triggers a hot reload.
