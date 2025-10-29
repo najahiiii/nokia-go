@@ -8,6 +8,10 @@
 
 ![nokiiiyuuu](.github/assets/nokiiiyuuu.png)
 
+> **SIM Card Info modal**
+
+![nokiiiyaaa-sim](.github/assets/nokiiiyaaa-sim.png)
+
 > **Configuration modal**
 
 ![nokiiiyiii](.github/assets/nokiiiyiii.png)
