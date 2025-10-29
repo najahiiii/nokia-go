@@ -29,6 +29,7 @@
 - In-browser configuration editor with live validation, toast notifications, and automatic service reload on save.
 - Adjustable polling interval slider that tunes dashboard refresh cadence while persisting to config.
 - Configuration writes persist to `config.json`; the server hot-reloads listener host/port without restarts and mirrors CLI overrides (flags/env vars).
+- Hidden debug surface that unlocks `/debug` only after ten taps on the navbar spacer (tap ten more times while on any debug screen to disable and re-hide it). A toast guides you after seven taps so you know how many remain.
 
 ## API Endpoints
 
@@ -60,6 +61,9 @@
 - `POST /api/telegram/send` — bridges messages to Telegram (`{"message":"text","chat_id":"override","parse_mode":"MarkdownV2"}`); uses configured chat ID / parse mode when omitted.
 
 ## Debug API Endpoints
+
+> [!tip]
+> The debug page is hidden by default. Click the empty spacer in the navbar ten times to unlock it, and repeat while on any `/debug` route to disable it again.
 
 The debug surface is available under `/api/debug/*` and mirrors the internal modem helpers so you can inspect raw responses without touching the Modem UI. Every route below expects a `POST` with a JSON body and replies with the decoded router JSON (or an error envelope). All fields are optional unless marked as required.
 
