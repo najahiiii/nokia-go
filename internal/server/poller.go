@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha1"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,12 +18,15 @@ import (
 )
 
 type smsMessage struct {
-	SMSID       string    `json:"SMSID"`
-	SMSContent  string    `json:"SMSContent"`
-	SMSDateTime string    `json:"SMSDateTime"`
-	SMSUnread   bool      `json:"SMSUnread"`
-	SMSSender   string    `json:"SMSSender"`
-	parsedTime  time.Time `json:"-"`
+	SMSID         string    `json:"SMSID"`
+	SMSContent    string    `json:"SMSContent"`
+	SMSDateTime   string    `json:"SMSDateTime"`
+	SMSUnread     bool      `json:"SMSUnread"`
+	SMSSender     string    `json:"SMSSender"`
+	SMSHash       string    `json:"hash,omitempty"`
+	NeedsMQTT     bool      `json:"needs_mqtt,omitempty"`
+	NeedsTelegram bool      `json:"needs_telegram,omitempty"`
+	parsedTime    time.Time `json:"-"`
 }
 
 type smsArchiveFile struct {
@@ -48,12 +52,10 @@ func (a *smsArchive) ensureLoadedLocked() error {
 	if a.loaded {
 		return nil
 	}
-	defer func() {
-		a.loaded = true
-	}()
 
 	data, err := os.ReadFile(a.path)
 	if errors.Is(err, os.ErrNotExist) {
+		a.loaded = true
 		return nil
 	}
 	if err != nil {
@@ -65,49 +67,70 @@ func (a *smsArchive) ensureLoadedLocked() error {
 		return err
 	}
 
+	entries := make(map[string]smsMessage, len(file.Messages))
 	for _, msg := range file.Messages {
-		if strings.TrimSpace(msg.SMSID) == "" {
+		msg.parsedTime = parseSmsTime(msg.SMSDateTime)
+		hash := ensureSmsHash(&msg)
+		if strings.TrimSpace(hash) == "" {
 			continue
 		}
-		a.entries[msg.SMSID] = msg
+		entries[hash] = msg
 	}
+	a.entries = entries
+	a.loaded = true
 	return nil
 }
 
-func (a *smsArchive) Update(messages []smsMessage) ([]smsMessage, error) {
+func (a *smsArchive) Sync(messages []smsMessage, mqttEnabled bool, telegramEnabled bool) ([]smsMessage, []smsMessage, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	if err := a.ensureLoadedLocked(); err != nil {
-		return nil, fmt.Errorf("load sms archive: %w", err)
+		return nil, nil, fmt.Errorf("load sms archive: %w", err)
+	}
+
+	if len(messages) == 0 {
+		pending := a.collectPendingLocked()
+		return nil, pending, nil
 	}
 
 	newMessages := make([]smsMessage, 0)
 	newEntries := make(map[string]smsMessage, len(messages))
 
-	for _, msg := range messages {
-		if strings.TrimSpace(msg.SMSID) == "" {
+	for _, incoming := range messages {
+		msgCopy := incoming
+		hash := ensureSmsHash(&msgCopy)
+		if strings.TrimSpace(hash) == "" {
 			continue
 		}
-		if _, exists := a.entries[msg.SMSID]; !exists {
-			newMessages = append(newMessages, msg)
+		if existing, exists := a.entries[hash]; !exists {
+			msgCopy.parsedTime = parseSmsTime(msgCopy.SMSDateTime)
+			msgCopy.NeedsMQTT = mqttEnabled
+			msgCopy.NeedsTelegram = telegramEnabled
+			newMessages = append(newMessages, msgCopy)
+		} else {
+			if existing.parsedTime.IsZero() {
+				existing.parsedTime = parseSmsTime(existing.SMSDateTime)
+			}
+			msgCopy.parsedTime = existing.parsedTime
+			msgCopy.NeedsMQTT = existing.NeedsMQTT
+			msgCopy.NeedsTelegram = existing.NeedsTelegram
 		}
-		newEntries[msg.SMSID] = msg
+		if msgCopy.parsedTime.IsZero() {
+			msgCopy.parsedTime = parseSmsTime(msgCopy.SMSDateTime)
+		}
+		newEntries[hash] = msgCopy
 	}
 
 	a.entries = newEntries
 
-	file := smsArchiveFile{
-		LastUpdated: time.Now().UTC(),
-		Messages:    make([]smsMessage, 0, len(messages)),
-	}
-	file.Messages = append(file.Messages, messages...)
+	pending := a.collectPendingLocked()
 
-	if err := a.saveLocked(file); err != nil {
-		return nil, fmt.Errorf("save sms archive: %w", err)
+	if err := a.persistLocked(); err != nil {
+		return nil, nil, fmt.Errorf("save sms archive: %w", err)
 	}
 
-	return newMessages, nil
+	return newMessages, pending, nil
 }
 
 func (a *smsArchive) saveLocked(file smsArchiveFile) error {
@@ -123,19 +146,128 @@ func (a *smsArchive) saveLocked(file smsArchiveFile) error {
 	return os.WriteFile(a.path, data, 0o644)
 }
 
-func (a *smsArchive) snapshotIDs() (map[string]struct{}, error) {
+func (a *smsArchive) collectPendingLocked() []smsMessage {
+	pending := make([]smsMessage, 0)
+	for _, msg := range a.entries {
+		if msg.NeedsMQTT || msg.NeedsTelegram {
+			pending = append(pending, msg)
+		}
+	}
+	sortMessagesByTime(pending)
+	return pending
+}
+
+func (a *smsArchive) SetPending(hash string, needsMQTT, needsTelegram bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	if err := a.ensureLoadedLocked(); err != nil {
-		return nil, err
+		return err
 	}
 
-	ids := make(map[string]struct{}, len(a.entries))
-	for id := range a.entries {
-		ids[id] = struct{}{}
+	msg, ok := a.entries[hash]
+	if !ok {
+		return fmt.Errorf("sms %s not found in archive", hash)
 	}
-	return ids, nil
+
+	if msg.NeedsMQTT == needsMQTT && msg.NeedsTelegram == needsTelegram {
+		return nil
+	}
+
+	msg.NeedsMQTT = needsMQTT
+	msg.NeedsTelegram = needsTelegram
+	a.entries[hash] = msg
+
+	return a.persistLocked()
+}
+
+func (a *smsArchive) persistLocked() error {
+	messages := make([]smsMessage, 0, len(a.entries))
+	for _, msg := range a.entries {
+		messages = append(messages, msg)
+	}
+
+	sortMessagesByTime(messages)
+
+	file := smsArchiveFile{
+		LastUpdated: time.Now().UTC(),
+		Messages:    messages,
+	}
+	return a.saveLocked(file)
+}
+
+func sortMessagesByTime(messages []smsMessage) {
+	sort.Slice(messages, func(i, j int) bool {
+		pi := messages[i].parsedTime
+		pj := messages[j].parsedTime
+		switch {
+		case !pi.IsZero() && !pj.IsZero():
+			if pi.Equal(pj) {
+				return messages[i].SMSHash > messages[j].SMSHash
+			}
+			return pi.After(pj)
+		case !pi.IsZero():
+			return true
+		case !pj.IsZero():
+			return false
+		default:
+			return messages[i].SMSHash > messages[j].SMSHash
+		}
+	})
+}
+
+func ensureSmsHash(msg *smsMessage) string {
+	hash := computeSmsHash(msg)
+	msg.SMSHash = hash
+	return hash
+}
+
+func computeSmsHash(msg *smsMessage) string {
+	sender := normalizedSmsSender(msg.SMSSender)
+	timestamp := normalizedSmsTimestamp(msg.SMSDateTime)
+	content := normalizedSmsContent(msg.SMSContent)
+
+	base := strings.Join([]string{sender, timestamp, content}, "\n")
+	if strings.TrimSpace(base) == "" {
+		rawParts := []string{
+			strings.TrimSpace(msg.SMSSender),
+			strings.TrimSpace(msg.SMSDateTime),
+			strings.TrimSpace(msg.SMSContent),
+			strings.TrimSpace(msg.SMSID),
+		}
+		base = strings.Join(rawParts, "\n")
+	}
+	if strings.TrimSpace(base) == "" {
+		base = "sms:empty"
+	}
+
+	sum := sha1.Sum([]byte(base))
+	return fmt.Sprintf("sha1:%x", sum[:12])
+}
+
+func normalizedSmsSender(sender string) string {
+	return strings.ToLower(strings.TrimSpace(sender))
+}
+
+func normalizedSmsTimestamp(raw string) string {
+	if t := parseSmsTime(raw); !t.IsZero() {
+		return t.UTC().Format(time.RFC3339)
+	}
+	return strings.TrimSpace(raw)
+}
+
+func normalizedSmsContent(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	fields := strings.Fields(trimmed)
+	normalized := strings.ToLower(strings.Join(fields, " "))
+	const maxLen = 160
+	if len(normalized) > maxLen {
+		normalized = normalized[:maxLen]
+	}
+	return normalized
 }
 
 func (s *Server) configureSmsForwarding(cfg config.Config) {
@@ -229,35 +361,33 @@ func (s *Server) performSmsSync(ctx context.Context) {
 		return
 	}
 
-	existingIDs, err := s.smsArchive.snapshotIDs()
-	if err != nil {
-		s.logger.Printf("poller: snapshot archive failed: %v", err)
-		existingIDs = map[string]struct{}{}
-	}
+	cfg := s.getConfig()
+	mqttConfigured := cfg.MQTT.Enabled && cfg.LongPolling.Enabled
+	telegramConfigured := cfg.Telegram.Enabled && cfg.LongPolling.ForwardSmsToTelegram
 
-	newMessages, err := s.smsArchive.Update(messages)
+	newMessages, pendingMessages, err := s.smsArchive.Sync(messages, mqttConfigured, telegramConfigured)
 	if err != nil {
 		s.logger.Printf("poller: persist failed: %v", err)
 		return
 	}
 
-	cfg := s.getConfig()
 	s.mqttMu.Lock()
 	mqttClient := s.mqttClient
 	s.mqttMu.Unlock()
 	mqttConnected := mqttClient != nil && mqttClient.IsConnected()
-	mqttReady := cfg.MQTT.Enabled && cfg.LongPolling.Enabled && mqttConnected
+	mqttReady := mqttConfigured && mqttConnected
 	now := time.Now().UTC()
 	statusPayload := map[string]interface{}{
-		"polled_at":          now.Format(time.RFC3339),
-		"total_messages":     len(messages),
-		"new_messages":       len(newMessages),
-		"interval_seconds":   cfg.LongPolling.IntervalSeconds,
-		"server_polling_on":  cfg.LongPolling.Enabled,
-		"mqtt_enabled":       cfg.LongPolling.Enabled && cfg.MQTT.Enabled,
-		"mqtt_connected":     mqttConnected,
-		"mqtt_ready":         mqttReady,
-		"telegram_forwarded": cfg.LongPolling.ForwardSmsToTelegram && cfg.Telegram.Enabled,
+		"polled_at":         now.Format(time.RFC3339),
+		"total_messages":    len(messages),
+		"new_messages":      len(newMessages),
+		"interval_seconds":  cfg.LongPolling.IntervalSeconds,
+		"server_polling_on": cfg.LongPolling.Enabled,
+		"mqtt_enabled":      mqttConfigured,
+		"mqtt_connected":    mqttConnected,
+		"mqtt_ready":        mqttReady,
+		"telegram_enabled":  telegramConfigured,
+		"queued_messages":   len(pendingMessages),
 	}
 
 	settingsSnapshot := s.store.Get()
@@ -323,29 +453,35 @@ func (s *Server) performSmsSync(ctx context.Context) {
 		}
 	}
 
-	if len(newMessages) == 0 {
-		return
+	if len(pendingMessages) > 0 {
+		s.deliverPendingMessages(ctx, cfg, pendingMessages, mqttConfigured, mqttReady, telegramConfigured, now)
 	}
+}
 
-	telegramEnabled := cfg.Telegram.Enabled && cfg.LongPolling.ForwardSmsToTelegram
-	chatID := ""
+func (s *Server) deliverPendingMessages(ctx context.Context, cfg config.Config, pending []smsMessage, mqttConfigured, mqttReady bool, telegramConfigured bool, now time.Time) {
+	publishTime := now.Format(time.RFC3339)
 	parseMode := strings.TrimSpace(cfg.Telegram.ParseMode)
-	if telegramEnabled {
+
+	telegramSendReady := false
+	chatID := ""
+	if telegramConfigured {
 		chatID = strings.TrimSpace(cfg.Telegram.ChatID)
 		if chatID == "" {
 			s.logger.Printf("poller: telegram chat id missing")
-			telegramEnabled = false
+		} else {
+			telegramSendReady = true
 		}
 	}
 
-	publishTime := now.Format(time.RFC3339)
-	for _, msg := range newMessages {
-		if _, exists := existingIDs[msg.SMSID]; exists {
+	for _, msg := range pending {
+		hash := strings.TrimSpace(msg.SMSHash)
+		if hash == "" {
 			continue
 		}
 
 		payload := map[string]interface{}{
 			"id":            msg.SMSID,
+			"hash":          hash,
 			"sender":        strings.TrimSpace(msg.SMSSender),
 			"content":       msg.SMSContent,
 			"timestamp":     msg.SMSDateTime,
@@ -354,30 +490,48 @@ func (s *Server) performSmsSync(ctx context.Context) {
 			"received_at":   publishTime,
 			"poll_interval": cfg.LongPolling.IntervalSeconds,
 		}
-		if mqttReady {
-			s.publishMqttSafe("sms", payload)
+
+		needsMQTT := msg.NeedsMQTT
+		needsTelegram := msg.NeedsTelegram
+
+		if needsMQTT {
+			if !mqttConfigured {
+				needsMQTT = false
+			} else if mqttReady {
+				if err := s.publishMqtt("sms", payload); err != nil {
+					s.logger.Printf("poller: mqtt send failed for SMS %s (hash %s): %v", msg.SMSID, hash, err)
+				} else {
+					needsMQTT = false
+				}
+			}
 		}
 
-		if !telegramEnabled {
-			continue
+		if needsTelegram {
+			if !telegramConfigured {
+				needsTelegram = false
+			} else if telegramSendReady {
+				messageText, resolvedParseMode := formatSmsForTelegram(msg, parseMode)
+				sendCtx, sendCancel := context.WithTimeout(ctx, 15*time.Second)
+				err := s.sendTelegramMessage(sendCtx, cfg.Telegram, chatID, resolvedParseMode, messageText)
+				sendCancel()
+				if err != nil {
+					s.logger.Printf("poller: telegram send failed for SMS %s (hash %s): %v", msg.SMSID, hash, err)
+				} else {
+					needsTelegram = false
+					s.logger.Printf("poller: forwarded SMS %s to Telegram", msg.SMSID)
+				}
+			}
 		}
 
-		messageText, resolvedParseMode := formatSmsForTelegram(msg, parseMode)
-
-		sendCtx, sendCancel := context.WithTimeout(ctx, 15*time.Second)
-		err := s.sendTelegramMessage(sendCtx, cfg.Telegram, chatID, resolvedParseMode, messageText)
-		sendCancel()
-		if err != nil {
-			s.logger.Printf("poller: telegram send failed for SMS %s: %v", msg.SMSID, err)
-			continue
+		if err := s.smsArchive.SetPending(hash, needsMQTT, needsTelegram); err != nil {
+			s.logger.Printf("poller: update delivery flags failed for sms %s: %v", hash, err)
 		}
-		s.logger.Printf("poller: forwarded SMS %s to Telegram", msg.SMSID)
 	}
 }
 
 func (s *Server) fetchSmsMessages(ctx context.Context) ([]smsMessage, error) {
 	client := s.getClient()
-	session, _, err := client.GetLogin(false)
+	session, _, err := client.GetLogin(ctx, false)
 	if err != nil {
 		return nil, fmt.Errorf("login: %w", err)
 	}
@@ -387,7 +541,7 @@ func (s *Server) fetchSmsMessages(ctx context.Context) ([]smsMessage, error) {
 
 	payload, err := client.GetSmsList(ctx, session)
 	if err != nil {
-		session, _, relogErr := client.GetLogin(true)
+		session, _, relogErr := client.GetLogin(ctx, true)
 		if relogErr != nil {
 			return nil, fmt.Errorf("sms list: relogin failed: %w", relogErr)
 		}
@@ -405,7 +559,7 @@ func (s *Server) fetchSmsMessages(ctx context.Context) ([]smsMessage, error) {
 
 func (s *Server) fetchStatusWeb(ctx context.Context) (map[string]interface{}, error) {
 	client := s.getClient()
-	session, _, err := client.GetLogin(false)
+	session, _, err := client.GetLogin(ctx, false)
 	if err != nil {
 		return nil, fmt.Errorf("login: %w", err)
 	}
@@ -415,7 +569,7 @@ func (s *Server) fetchStatusWeb(ctx context.Context) (map[string]interface{}, er
 
 	data, err := client.GetStatusWeb(ctx, session)
 	if err != nil {
-		session, _, relogErr := client.GetLogin(true)
+		session, _, relogErr := client.GetLogin(ctx, true)
 		if relogErr != nil {
 			return nil, fmt.Errorf("status_web: relogin failed: %w", relogErr)
 		}
@@ -432,7 +586,7 @@ func (s *Server) fetchStatusWeb(ctx context.Context) (map[string]interface{}, er
 
 func (s *Server) fetchServiceData(ctx context.Context) (map[string]interface{}, error) {
 	client := s.getClient()
-	session, _, err := client.GetLogin(false)
+	session, _, err := client.GetLogin(ctx, false)
 	if err != nil {
 		return nil, fmt.Errorf("login: %w", err)
 	}
@@ -442,7 +596,7 @@ func (s *Server) fetchServiceData(ctx context.Context) (map[string]interface{}, 
 
 	data, err := client.PostServiceData(ctx, session)
 	if err != nil {
-		session, _, relogErr := client.GetLogin(true)
+		session, _, relogErr := client.GetLogin(ctx, true)
 		if relogErr != nil {
 			return nil, fmt.Errorf("service_data: relogin failed: %w", relogErr)
 		}

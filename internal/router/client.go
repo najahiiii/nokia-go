@@ -48,7 +48,11 @@ func NewClient(cfg config.Config) *Client {
 	}
 }
 
-func (c *Client) GetLogin(force bool) (*LoginSession, map[string]interface{}, error) {
+func (c *Client) GetLogin(ctx context.Context, force bool) (*LoginSession, map[string]interface{}, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -56,20 +60,20 @@ func (c *Client) GetLogin(force bool) (*LoginSession, map[string]interface{}, er
 		return c.cachedLogin, nil, nil
 	}
 
-	pre, _ := c.GetPreloginStatus(context.Background())
+	pre, _ := c.GetPreloginStatus(ctx)
 	preToken := getString(pre, "token")
 
-	nonceResp, err := c.getNonce(context.Background())
+	nonceResp, err := c.getNonce(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get nonce: %w", err)
 	}
 
-	saltResp, err := c.getSalt(context.Background(), c.username, nonceResp)
+	saltResp, err := c.getSalt(ctx, c.username, nonceResp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get salt: %w", err)
 	}
 
-	loginResp, err := c.login(context.Background(), c.username, c.password, nonceResp, saltResp)
+	loginResp, err := c.login(ctx, c.username, c.password, nonceResp, saltResp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("login: %w", err)
 	}
@@ -209,7 +213,7 @@ func (c *Client) GetLedState(ctx context.Context, session *LoginSession) (map[st
 	return c.getAuthenticated(ctx, "ledctrl_status_web_app.cgi", session, nil)
 }
 
-func (c *Client) GetSimInfo(ctx context.Context, session *LoginSession) (map [string]interface{}, error) {
+func (c *Client) GetSimInfo(ctx context.Context, session *LoginSession) (map[string]interface{}, error) {
 	return c.getAuthenticated(ctx, "fastmile_statistics_status_web_app.cgi", session, nil)
 }
 

@@ -342,7 +342,7 @@ func (s *Server) handleMqttApnCommand(topic, apn string) {
 	defer cancel()
 
 	client := s.getClient()
-	session, _, err := client.GetLogin(false)
+	session, _, err := client.GetLogin(ctx, false)
 	if err != nil {
 		s.logger.Printf("mqtt apn: login failed: %v", err)
 		return
@@ -353,7 +353,7 @@ func (s *Server) handleMqttApnCommand(topic, apn string) {
 	}
 
 	if _, err = client.PostSetAPN(ctx, session, apn); err != nil {
-		session, _, relogErr := client.GetLogin(true)
+		session, _, relogErr := client.GetLogin(ctx, true)
 		if relogErr != nil {
 			s.logger.Printf("mqtt apn: relogin failed: %v", relogErr)
 			return
@@ -1102,7 +1102,7 @@ func (s *Server) handleLedState(w http.ResponseWriter, r *http.Request) {
 		}
 
 		client := s.getClient()
-		session, loginResp, err := client.GetLogin(false)
+		session, loginResp, err := client.GetLogin(r.Context(), false)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -1114,7 +1114,7 @@ func (s *Server) handleLedState(w http.ResponseWriter, r *http.Request) {
 
 		result, err := client.LedState(r.Context(), session, enable)
 		if err != nil {
-			session, loginResp, err = client.GetLogin(true)
+			session, loginResp, err = client.GetLogin(r.Context(), true)
 			if err != nil {
 				writeError(w, err)
 				return
@@ -1228,7 +1228,7 @@ func (s *Server) withSessionForMethods(w http.ResponseWriter, r *http.Request, m
 	}
 
 	client := s.getClient()
-	session, loginResp, err := client.GetLogin(false)
+	session, loginResp, err := client.GetLogin(r.Context(), false)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1241,7 +1241,7 @@ func (s *Server) withSessionForMethods(w http.ResponseWriter, r *http.Request, m
 	result, err := fn(r.Context(), session)
 	if err != nil {
 		client = s.getClient()
-		session, loginResp, err = client.GetLogin(true)
+		session, loginResp, err = client.GetLogin(r.Context(), true)
 		if err != nil {
 			writeError(w, err)
 			return
