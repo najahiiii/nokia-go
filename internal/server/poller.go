@@ -259,10 +259,24 @@ func (s *Server) performSmsSync(ctx context.Context) {
 		"mqtt_ready":         mqttReady,
 		"telegram_forwarded": cfg.LongPolling.ForwardSmsToTelegram && cfg.Telegram.Enabled,
 	}
+
+	settingsSnapshot := s.store.Get()
+
+	statusCtx, statusCancel := context.WithTimeout(ctx, 10*time.Second)
+	statusWeb, statusErr := s.fetchStatusWeb(statusCtx)
+	statusCancel()
+	if statusErr != nil {
+		s.logger.Printf("poller: status_web fetch failed: %v", statusErr)
+	} else {
+		if updateErr := s.store.UpdateUsageFromStatus(statusWeb); updateErr != nil {
+			s.logger.Printf("poller: update usage from status failed: %v", updateErr)
+		}
+		settingsSnapshot = s.store.Get()
+	}
+
 	if mqttReady {
 		s.publishMqttSafe("status", statusPayload)
 
-		settingsSnapshot := s.store.Get()
 		dailyPayload := buildDailyUsageSnapshot(settingsSnapshot)
 		dailyPayload["polled_at"] = now.Format(time.RFC3339)
 		dailyPayload["source"] = "poller"
@@ -274,15 +288,7 @@ func (s *Server) performSmsSync(ctx context.Context) {
 			"source":       "poller",
 		})
 
-		statusCtx, statusCancel := context.WithTimeout(ctx, 10*time.Second)
-		statusWeb, err := s.fetchStatusWeb(statusCtx)
-		statusCancel()
-		if err != nil {
-			s.logger.Printf("poller: status_web fetch failed: %v", err)
-		} else {
-			if updateErr := s.store.UpdateUsageFromStatus(statusWeb); updateErr != nil {
-				s.logger.Printf("poller: update usage from status failed: %v", updateErr)
-			}
+		if statusErr == nil {
 			s.publishMqttSafe("status_web", map[string]interface{}{
 				"polled_at": now.Format(time.RFC3339),
 				"data":      statusWeb,

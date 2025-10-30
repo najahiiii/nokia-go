@@ -308,6 +308,10 @@ func (s *Server) subscribeMqttApn(client mqtt.Client, base string) {
 		seen[topic] = struct{}{}
 
 		token := client.Subscribe(topic, 1, func(c mqtt.Client, msg mqtt.Message) {
+			if msg.Retained() {
+				s.logger.Printf("mqtt apn: ignored retained payload from %s", msg.Topic())
+				return
+			}
 			payload := strings.TrimSpace(string(msg.Payload()))
 			if payload == "" {
 				return
