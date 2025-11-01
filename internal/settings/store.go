@@ -1,9 +1,11 @@
 package settings
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,21 +78,27 @@ func defaultSettings() Settings {
 }
 
 func (s *Store) load() error {
-	file, err := os.Open(s.path)
+	data, err := os.ReadFile(s.path)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
-	var data Settings
-	if err := json.NewDecoder(file).Decode(&data); err != nil {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return s.recoverCorruptFile(io.EOF)
+	}
+
+	var settingsData Settings
+	if err := json.Unmarshal(data, &settingsData); err != nil {
+		if isRecoverableSettingsError(err) {
+			return s.recoverCorruptFile(err)
+		}
 		return err
 	}
 
-	if data.DailyUsage == nil {
-		data.DailyUsage = map[string]UsageStats{}
+	if settingsData.DailyUsage == nil {
+		settingsData.DailyUsage = map[string]UsageStats{}
 	}
-	s.data = data
+	s.data = settingsData
 	return nil
 }
 
@@ -99,15 +107,48 @@ func (s *Store) save() error {
 		return err
 	}
 
-	file, err := os.Create(s.path)
+	dir := filepath.Dir(s.path)
+	tmpFile, err := os.CreateTemp(dir, "settings-*.tmp")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	tmpName := tmpFile.Name()
 
-	encoder := json.NewEncoder(file)
+	encoder := json.NewEncoder(tmpFile)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(s.data)
+	if err := encoder.Encode(s.data); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+
+	if err := tmpFile.Sync(); err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpName)
+		return err
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+
+	if err := os.Rename(tmpName, s.path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+
+	if err := os.Chmod(s.path, 0o644); err != nil {
+		return err
+	}
+
+	dirHandle, err := os.Open(dir)
+	if err != nil {
+		return nil
+	}
+	defer dirHandle.Close()
+	_ = dirHandle.Sync()
+	return nil
 }
 
 func (s *Store) Get() Settings {
@@ -306,4 +347,27 @@ func parseStringInt(s string) (int64, error) {
 	var result int64
 	_, err := fmt.Sscanf(strings.TrimSpace(s), "%d", &result)
 	return result, err
+}
+
+func isRecoverableSettingsError(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return true
+	}
+	var unmarshalErr *json.UnmarshalTypeError
+	return errors.As(err, &unmarshalErr)
+}
+
+func (s *Store) recoverCorruptFile(_ error) error {
+	backupPath := fmt.Sprintf("%s.corrupt-%d", s.path, time.Now().UTC().Unix())
+	if err := os.Rename(s.path, backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		// If we cannot move it aside, attempt to remove to ensure a clean slate.
+		_ = os.Remove(s.path)
+	}
+
+	s.data = defaultSettings()
+	return s.save()
 }

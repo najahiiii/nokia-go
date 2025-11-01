@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -52,6 +54,66 @@ func TestUpdateUsageCountsNewDataAfterReset(t *testing.T) {
 	usage = store.Get().DailyUsage[today]
 	if usage.Upload != 830 || usage.Download != 1050 {
 		t.Fatalf("expected incremental usage after reset, got %+v", usage)
+	}
+}
+
+func TestNewStoreRecoversFromCorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte(`{"daily_usage":{}`), 0o644); err != nil {
+		t.Fatalf("failed to write corrupt file: %v", err)
+	}
+
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("expected recovery from corrupt file, got error: %v", err)
+	}
+
+	if len(store.Get().DailyUsage) != 0 {
+		t.Fatalf("expected empty usage after recovery")
+	}
+
+	stat, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("expected rewritten settings.json, got stat error: %v", err)
+	}
+	if stat.Size() == 0 {
+		t.Fatalf("expected settings.json to contain data after recovery")
+	}
+
+	backups, err := filepath.Glob(path + ".corrupt-*")
+	if err != nil {
+		t.Fatalf("failed to list backup files: %v", err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("expected a single corrupt backup file, got %d", len(backups))
+	}
+}
+
+func TestNewStoreRecoversFromEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte{}, 0o644); err != nil {
+		t.Fatalf("failed to write empty file: %v", err)
+	}
+
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("expected recovery from empty file, got error: %v", err)
+	}
+
+	settings := store.Get()
+	if settings.DailyUsage == nil {
+		t.Fatalf("expected DailyUsage map to be initialised")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read regenerated settings.json: %v", err)
+	}
+	var decoded Settings
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("expected regenerated file to be valid JSON, got %v", err)
 	}
 }
 
