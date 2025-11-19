@@ -38,6 +38,77 @@ func TestUpdateUsageTemporaryResetDoesNotDoubleCount(t *testing.T) {
 	}
 }
 
+func TestNormalizeUsageTotalsAdjustsDailyAndLast(t *testing.T) {
+	settingsData := Settings{
+		DailyUsage: map[string]UsageStats{
+			"2024-05-01": {Upload: 100, Download: 200, Total: 0},
+			"2024-05-02": {Upload: 0, Download: 0, Total: 0},
+		},
+		LastStats: LastStats{Upload: 5, Download: 7, Total: 0},
+	}
+
+	result := NormalizeUsageTotals(&settingsData)
+
+	if len(result.AdjustedDays) != 1 || result.AdjustedDays[0] != "2024-05-01" {
+		t.Fatalf("unexpected adjusted days: %+v", result.AdjustedDays)
+	}
+	if !result.LastStatsAdjusted {
+		t.Fatalf("expected last stats flag to be set")
+	}
+
+	day := settingsData.DailyUsage["2024-05-01"]
+	if day.Total != 300 {
+		t.Fatalf("expected total to equal upload+download, got %+v", day)
+	}
+	if settingsData.LastStats.Total != 12 {
+		t.Fatalf("expected last stats total to be 12, got %+v", settingsData.LastStats)
+	}
+}
+
+func TestNewStoreNormalizesExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	initial := []byte(`{
+		"data_expired": 0,
+		"daily_usage": {
+			"2024-05-01": {"upload": 10, "download": 20, "total": 0}
+		},
+		"last_stats": {"upload": 5, "download": 10, "total": 0},
+		"pending_reset": {"upload":0,"download":0,"observed_at":0,"active":false}
+	}`)
+	if err := os.WriteFile(path, initial, 0o644); err != nil {
+		t.Fatalf("failed to seed settings file: %v", err)
+	}
+
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("NewStore returned error: %v", err)
+	}
+
+	usage := store.Get().DailyUsage["2024-05-01"]
+	if usage.Total != usage.Upload+usage.Download {
+		t.Fatalf("expected total to be normalised, got %+v", usage)
+	}
+	if store.Get().LastStats.Total != store.Get().LastStats.Upload+store.Get().LastStats.Download {
+		t.Fatalf("expected last stats total to be normalised, got %+v", store.Get().LastStats)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read rewritten settings: %v", err)
+	}
+	var decoded Settings
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to decode rewritten file: %v", err)
+	}
+	if decoded.DailyUsage["2024-05-01"].Total != 30 {
+		t.Fatalf("expected persisted total to be 30, got %+v", decoded.DailyUsage["2024-05-01"])
+	}
+	if decoded.LastStats.Total != 15 {
+		t.Fatalf("expected persisted last stats total to be 15, got %+v", decoded.LastStats)
+	}
+}
+
 func TestUpdateUsageCountsNewDataAfterReset(t *testing.T) {
 	store := newTestStore(t)
 	today := time.Now().Format("2006-01-02")

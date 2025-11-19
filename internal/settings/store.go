@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +40,11 @@ type Settings struct {
 	DailyUsage   map[string]UsageStats `json:"daily_usage"`
 	LastStats    LastStats             `json:"last_stats"`
 	PendingReset ResetTracker          `json:"pending_reset"`
+}
+
+type UsageNormalizationResult struct {
+	AdjustedDays      []string
+	LastStatsAdjusted bool
 }
 
 type Store struct {
@@ -98,16 +104,25 @@ func (s *Store) load() error {
 	if settingsData.DailyUsage == nil {
 		settingsData.DailyUsage = map[string]UsageStats{}
 	}
+	normalization := NormalizeUsageTotals(&settingsData)
 	s.data = settingsData
+	if len(normalization.AdjustedDays) > 0 || normalization.LastStatsAdjusted {
+		return s.save()
+	}
 	return nil
 }
 
 func (s *Store) save() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	return WriteFile(s.path, s.data)
+}
+
+// WriteFile serialises settings to disk atomically.
+func WriteFile(path string, data Settings) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 
-	dir := filepath.Dir(s.path)
+	dir := filepath.Dir(path)
 	tmpFile, err := os.CreateTemp(dir, "settings-*.tmp")
 	if err != nil {
 		return err
@@ -116,7 +131,7 @@ func (s *Store) save() error {
 
 	encoder := json.NewEncoder(tmpFile)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(s.data); err != nil {
+	if err := encoder.Encode(data); err != nil {
 		_ = tmpFile.Close()
 		_ = os.Remove(tmpName)
 		return err
@@ -133,12 +148,12 @@ func (s *Store) save() error {
 		return err
 	}
 
-	if err := os.Rename(tmpName, s.path); err != nil {
+	if err := os.Rename(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
 		return err
 	}
 
-	if err := os.Chmod(s.path, 0o644); err != nil {
+	if err := os.Chmod(path, 0o644); err != nil {
 		return err
 	}
 
@@ -178,6 +193,34 @@ func (s *Store) Update(fn func(*Settings) error) error {
 		return err
 	}
 	return s.save()
+}
+
+// NormalizeUsageTotals ensures the total counters match upload+download.
+func NormalizeUsageTotals(settings *Settings) UsageNormalizationResult {
+	var result UsageNormalizationResult
+	if settings == nil {
+		return result
+	}
+	if settings.DailyUsage == nil {
+		settings.DailyUsage = map[string]UsageStats{}
+	}
+	for day, stats := range settings.DailyUsage {
+		expected := stats.Upload + stats.Download
+		if stats.Total != expected {
+			stats.Total = expected
+			settings.DailyUsage[day] = stats
+			result.AdjustedDays = append(result.AdjustedDays, day)
+		}
+	}
+
+	expectedTotal := settings.LastStats.Upload + settings.LastStats.Download
+	if settings.LastStats.Total != expectedTotal {
+		settings.LastStats.Total = expectedTotal
+		result.LastStatsAdjusted = true
+	}
+
+	sort.Strings(result.AdjustedDays)
+	return result
 }
 
 func (s *Store) SetDataExpired(timestamp int64) error {

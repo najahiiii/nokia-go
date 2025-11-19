@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -64,6 +65,14 @@ func main() {
 	case "setup":
 		if err := setupCommand(args); err != nil {
 			log.Fatalf("setup: %v", err)
+		}
+	case "check-usage":
+		if err := checkUsageCommand(args); err != nil {
+			log.Fatalf("check-usage: %v", err)
+		}
+	case "fix-usage":
+		if err := fixUsageCommand(args); err != nil {
+			log.Fatalf("fix-usage: %v", err)
 		}
 	case "version", "-v", "--version":
 		fmt.Println(appVersion)
@@ -185,6 +194,101 @@ func setupCommand(args []string) error {
 	return nil
 }
 
+func checkUsageCommand(args []string) error {
+	settingsPath, err := resolveSettingsPath("check-usage", args)
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return fmt.Errorf("read settings: %w", err)
+	}
+
+	var decoded settings.Settings
+	if len(strings.TrimSpace(string(data))) > 0 {
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			return fmt.Errorf("decode settings: %w", err)
+		}
+	}
+
+	result := settings.NormalizeUsageTotals(&decoded)
+	if len(result.AdjustedDays) == 0 && !result.LastStatsAdjusted {
+		fmt.Printf("Usage totals already consistent in %s\n", settingsPath)
+		return nil
+	}
+
+	fmt.Printf("Usage totals need fixing in %s:\n", settingsPath)
+	for _, day := range result.AdjustedDays {
+		fmt.Printf("  - %s\n", day)
+	}
+	if result.LastStatsAdjusted {
+		fmt.Println("  - last_stats entry")
+	}
+	fmt.Println("Run 'nokia-router fix-usage' to rewrite totals.")
+	return nil
+}
+
+func fixUsageCommand(args []string) error {
+	settingsPath, err := resolveSettingsPath("fix-usage", args)
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return fmt.Errorf("read settings: %w", err)
+	}
+
+	var decoded settings.Settings
+	if len(strings.TrimSpace(string(data))) > 0 {
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			return fmt.Errorf("decode settings: %w", err)
+		}
+	}
+
+	result := settings.NormalizeUsageTotals(&decoded)
+	if len(result.AdjustedDays) == 0 && !result.LastStatsAdjusted {
+		fmt.Printf("No usage totals needed fixing in %s\n", settingsPath)
+		return nil
+	}
+
+	if err := settings.WriteFile(settingsPath, decoded); err != nil {
+		return fmt.Errorf("write settings: %w", err)
+	}
+
+	fmt.Printf("Rewrote totals for %d day(s) in %s\n", len(result.AdjustedDays), settingsPath)
+	for _, day := range result.AdjustedDays {
+		fmt.Printf("  - %s\n", day)
+	}
+	if result.LastStatsAdjusted {
+		fmt.Println("Also updated last_stats total entry")
+	}
+	return nil
+}
+
+func resolveSettingsPath(command string, args []string) (string, error) {
+	defaultPath, err := defaultConfigPath()
+	if err != nil {
+		return "", err
+	}
+
+	fs := flag.NewFlagSet(command, flag.ExitOnError)
+	cfgPath := fs.String("config", defaultPath, "path to configuration file")
+	settingsPath := fs.String("settings", "", "path to settings file (overrides -config)")
+	if err := fs.Parse(args); err != nil {
+		return "", err
+	}
+
+	if path := strings.TrimSpace(*settingsPath); path != "" {
+		return path, nil
+	}
+	if strings.TrimSpace(*cfgPath) == "" {
+		return "", errors.New("configuration path cannot be empty")
+	}
+	return filepath.Join(filepath.Dir(*cfgPath), "settings.json"), nil
+}
+
 func defaultConfigPath() (string, error) {
 	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
 		return filepath.Join(home, ".config", "nokia", "config.json"), nil
@@ -203,6 +307,8 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  run     Start the web server")
 	fmt.Println("  setup   Generate default configuration and exit")
+	fmt.Println("  check-usage  Show days with inconsistent usage totals")
+	fmt.Println("  fix-usage    Rewrite usage totals in settings.json")
 	fmt.Println("  version Show program version")
 	fmt.Println()
 	fmt.Println("Global options:")
