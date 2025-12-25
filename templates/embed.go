@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed web/**
+//go:embed all:web/**
 var content embed.FS
 
 var (
